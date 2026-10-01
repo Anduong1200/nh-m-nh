@@ -1,5 +1,12 @@
 # Frozen Assumptions
 
+## Board domain, 2026-10-02
+
+- Accepted user decision: both House members edit/move; creator alone trashes/restores. No permanent purge.
+- Offline queue is limited to note/doodle, with explicit conflict resolution; existing schema-0/1 work stays held for a user-visible recovery flow.
+- Media work here is same-House verified metadata references only. Upload, private Storage policies, byte validation and delivery remain in the media pipeline. Bounds are 20 MiB and 60 seconds for short voice until that pipeline is implemented.
+- This branch stays separate from Gemini's Board UI. Existing action calls/coordinator require integration against [BOARD_DOMAIN.md](BOARD_DOMAIN.md) before merging into the app.
+
 These decisions resolve answers that were intentionally flexible.
 
 ## Package manager

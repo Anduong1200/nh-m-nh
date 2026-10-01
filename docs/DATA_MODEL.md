@@ -95,11 +95,23 @@ Preferences are account-private; quiet hours use a validated IANA zone. Presence
 - y
 - rotation
 - z_index
+- version (optimistic integer; incremented by authorized RPC)
+- media_id (same-House verified media reference, nullable)
 - created_at
 - updated_at
 - deleted_at
 
 Avoid storing sensitive blobs directly in JSON when typed columns/tables are safer.
+
+### board_operations
+- operation_id (stable retry UUID)
+- house_id / actor_id / item_id
+- request (immutable logical mutation)
+- outcome (`applied` / `conflict`)
+- snapshot (immutable authoritative result)
+- created_at
+
+Both House members edit; only the creator trashes/restores. Ledger SELECT is actor-private and requires current membership. Details and integration contract: [Board domain](BOARD_DOMAIN.md).
 
 ## Whiteboard
 
@@ -180,10 +192,14 @@ Prefer deriving progression from events rather than arbitrary client score.
 - owner_id
 - storage_path
 - media_type
+- bucket_id (`nha-minh-private`)
+- state (`pending` / `ready` / `error`)
+- mime_type
 - size_bytes
 - duration_seconds
 - created_at
-- deleted_at
+
+Board media metadata is read-only to clients; only ready, verified same-House media may be attached. Upload/Storage policies and signed delivery belong to the separate media pipeline. See [Board domain](BOARD_DOMAIN.md#media-boundary).
 
 ## Export/deletion
 

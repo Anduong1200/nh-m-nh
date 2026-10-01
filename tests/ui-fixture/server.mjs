@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "esbuild";
+import { handleBoardFixture } from "./board-server.mjs";
 
 const bundle = await build({ entryPoints: ["tests/ui-fixture/entry.tsx"], bundle: true, write: false, format: "esm", platform: "browser", jsx: "automatic", define: { "process.env.NODE_ENV": '"production"' },
   // Phase 2 fixture never imports real server actions or Supabase into its browser bundle.
@@ -49,6 +50,7 @@ const server = createServer(async (request, response) => {
     response.end(`<!doctype html><html lang="vi" class="${fontClass}" data-theme="day"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nhà Mình · Kiểm thử giao diện</title><link rel="stylesheet" href="/styles.css"></head><body><div id="root"></div><script type="module" src="/bundle.js"></script></body></html>`);
     return;
   }
+  if (await handleBoardFixture(request, response, url)) return;
   const actor = actors[Number(url.searchParams.get("actor") ?? 0)];
   if (!actor) { json(response, { error: "Invalid fixture actor" }, 400); return; }
   const state = sessionState(url.searchParams.get("session") ?? "default");

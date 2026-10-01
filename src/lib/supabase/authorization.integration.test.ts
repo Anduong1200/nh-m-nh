@@ -53,6 +53,13 @@ function setPresence(userId: string, expectedVersion = 0, note = "Một tách tr
     "select * from public.set_presence('calm', 2, 'later', $1, '', null, $2)", [note, expectedVersion]);
 }
 
+async function board(userId: string | null, houseId: string, itemId: string, mutation = "append", expectedVersion = 0,
+  data: unknown = { type: "note", payload: { text: "Một tờ giấy" } }, operation = crypto.randomUUID()) {
+  const rows = await asUser<{ result: { operation_id: string; actor_id: string; house_id: string; outcome: string; item: { id: string; version: number; payload: unknown; deleted_at: string | null; x: number } } }>(userId,
+    "select public.apply_board_operation($1,$2,$3,$4,$5,$6) as result", [operation,houseId,mutation,itemId,expectedVersion,data]);
+  return rows[0]!.result;
+}
+
 describe("Supabase migrations and PostgreSQL House authorization", () => {
   beforeAll(async () => {
     database = new PGlite();
@@ -319,5 +326,101 @@ describe("Supabase migrations and PostgreSQL House authorization", () => {
     await expect(asUser(users.a, "select public.set_notification_preferences(true,20,20,'Asia/Bangkok','generic')")).rejects.toMatchObject({ code: "22023" });
     await expect(asUser(users.a, "select public.set_notification_preferences(false,20,30,'Invalid/Timezone','generic')")).rejects.toMatchObject({ code: "22023" });
     await expect(asUser(null, "select public.set_notification_preferences(false,20,30,'Asia/Bangkok','generic')")).rejects.toMatchObject({ code: "42501" });
+  });
+
+  it("retries Board append and update after a lost response, including a later partner edit", async () => {
+    const id = crypto.randomUUID(), createOp = crypto.randomUUID(), updateOp = crypto.randomUUID();
+    const first = await board(users.a,houseA,id,"append",0,undefined,createOp);
+    expect(await board(users.a,houseA,id,"append",0,undefined,createOp)).toEqual(first);
+    const second = await board(users.a,houseA,id,"update",1,{payload:{text:"Lần lưu của mình"}},updateOp);
+    await board(users.partnerA,houseA,id,"update",2,{payload:{text:"Bản mới của người thương"}});
+    expect(await board(users.a,houseA,id,"update",1,{payload:{text:"Lần lưu của mình"}},updateOp)).toEqual(second);
+    expect(await asUser(users.partnerA,"select version,payload from public.board_objects")).toEqual([{version:3,payload:{text:"Bản mới của người thương"}}]);
+    expect((await asUser(users.a,"select * from public.board_objects")).length).toBe(1);
+  });
+  it("binds a Board operation ID to its actor, House and exact request", async () => {
+    const id=crypto.randomUUID(), op=crypto.randomUUID();
+    await board(users.a,houseA,id,"append",0,undefined,op);
+    await expect(board(users.a,houseA,id,"append",0,{type:"note",payload:{text:"Changed"}},op)).rejects.toMatchObject({code:"23505"});
+    await expect(board(users.partnerA,houseA,id,"append",0,undefined,op)).rejects.toMatchObject({code:"23505"});
+    await expect(board(users.b,houseB,id,"append",0,undefined,op)).rejects.toMatchObject({code:"23505"});
+    await expect(board(users.a,houseB,crypto.randomUUID())).rejects.toMatchObject({code:"42501"});
+    expect(await asUser(users.partnerA,"select * from public.board_operations")).toEqual([]);
+    expect(await asUser(users.outsider,"select * from public.board_objects")).toEqual([]);
+  });
+  it("preserves a stale Board proposal as an idempotent conflict without overwriting the object", async () => {
+    const id=crypto.randomUUID(), conflictOp=crypto.randomUUID();
+    await board(users.a,houseA,id);
+    await board(users.partnerA,houseA,id,"update",1,{payload:{text:"Partner"}});
+    const conflict = await board(users.a,houseA,id,"update",1,{payload:{text:"Local"}},conflictOp);
+    expect(conflict.outcome).toBe("conflict"); expect(conflict.item.version).toBe(2);
+    expect(conflict.item.payload).toEqual({text:"Partner"});
+    expect(await board(users.a,houseA,id,"update",1,{payload:{text:"Local"}},conflictOp)).toEqual(conflict);
+    expect(await asUser(users.a,"select version from public.board_objects")).toEqual([{version:2}]);
+  });
+  it("allows shared edits but restricts recoverable trash and restoration to the creator", async () => {
+    const id=crypto.randomUUID();
+    await board(users.a,houseA,id);
+    expect((await board(users.partnerA,houseA,id,"update",1,{x:10})).item.x).toBe(10);
+    await expect(board(users.partnerA,houseA,id,"trash",2,{})).rejects.toMatchObject({code:"42501"});
+    const trashed=await board(users.a,houseA,id,"trash",2,{});
+    expect(trashed.item.deleted_at).not.toBeNull();
+    await expect(board(users.partnerA,houseA,id,"restore",3,{})).rejects.toMatchObject({code:"42501"});
+    await expect(board(users.a,houseA,id,"update",3,{x:20})).rejects.toMatchObject({code:"P0002"});
+    const restored=await board(users.a,houseA,id,"restore",3,{});
+    expect(restored.item.deleted_at).toBeNull(); expect(restored.item.version).toBe(4);
+    expect(restored.item.payload).toEqual({text:"Một tờ giấy"});
+  });
+  it("blocks anonymous/outsider/left/archived writes, including replay, and retires legacy mutations", async () => {
+    const id=crypto.randomUUID(), op=crypto.randomUUID();
+    await board(users.a,houseA,id,"append",0,undefined,op);
+    await expect(board(null,houseA,crypto.randomUUID())).rejects.toMatchObject({code:"42501"});
+    await expect(board(users.outsider,houseA,crypto.randomUUID())).rejects.toMatchObject({code:"42501"});
+    for (const [table,column] of [["board_objects","version"],["board_operations","outcome"],["media_objects","state"]]) {
+      await expect(asUser(users.a,`delete from public.${table}`)).rejects.toMatchObject({code:"42501"});
+      await expect(asUser(users.a,`insert into public.${table} select * from public.${table} limit 0`)).rejects.toMatchObject({code:"42501"});
+      await expect(asUser(users.a,`update public.${table} set ${column}=${column} where false`)).rejects.toMatchObject({code:"42501"});
+      await expect(asUser(null,`select * from public.${table}`)).rejects.toMatchObject({code:"42501"});
+      expect(await asUser(users.b,`select * from public.${table}`)).toEqual([]);
+    }
+    await expect(asUser(users.a,"select public.append_board_object($1,'note','{}',0,0,0,0)",[crypto.randomUUID()])).rejects.toMatchObject({code:"42501"});
+    await expect(asUser(users.a,"select public.update_board_object($1,1,null,0,0,0,0,true)",[id])).rejects.toMatchObject({code:"42501"});
+    await database.query("update public.house_members set status='left',left_at=now() where user_id=$1",[users.partnerA]);
+    await expect(board(users.partnerA,houseA,id,"update",1,{x:1})).rejects.toMatchObject({code:"42501"});
+    await database.query("update public.houses set state='archived' where id=$1",[houseA]);
+    await expect(board(users.a,houseA,id,"append",0,undefined,op)).rejects.toMatchObject({code:"42501"});
+    expect(await asUser(users.a,"select * from public.board_operations")).toEqual([]);
+  });
+  it.each([
+    {type:"note",payload:{}}, {type:"note",payload:{text:"x".repeat(10001)}},
+    {type:"note",payload:{text:"bad\u0001"}}, {type:"link",payload:{url:"javascript:alert(1)"}},
+    {type:"link",payload:{url:"https://user:password@example.com"}},
+    {type:"note",payload:{text:"OK",html:"<script>"}},
+    {type:"note",payload:{text:"OK"},x:10001}, {type:"note",payload:{text:"OK"},x:null},
+    {type:"note",payload:{text:"OK"},rotation:"20"}, {type:"note",payload:{text:"OK"},zIndex:1.5},
+    {type:"doodle",payload:{schemaVersion:1,strokes:[{color:"url(evil)",width:1,points:[]}]}},
+    {type:"doodle",payload:{schemaVersion:1,strokes:[{color:"#ffffff",points:[]}]}},
+    {type:"doodle",payload:{strokes:[]}}, {type:"photo",payload:{url:"https://public.invalid/photo"}},
+  ])("rejects invalid Board content at the SQL boundary: %j", async (data) => {
+    await expect(board(users.a,houseA,crypto.randomUUID(),"append",0,data)).rejects.toBeTruthy();
+    expect(await asUser(users.a,"select * from public.board_objects")).toEqual([]);
+  });
+  it("persists bounded doodles and safe links as shared artifacts", async () => {
+    for (const data of [{type:"link",payload:{url:"https://example.com/path",title:"Đi cùng nhau"}}, {type:"doodle",payload:{schemaVersion:1,strokes:[{color:"#abcdef",width:2,points:[[0,1],[30,20]]}]}}]) {
+      expect((await board(users.a,houseA,crypto.randomUUID(),"append",0,data)).outcome).toBe("applied");
+    }
+    expect((await asUser(users.partnerA,"select * from public.board_objects")).length).toBe(2);
+  });
+  it("requires ready private media of the right kind in the same House and denies client metadata writes", async () => {
+    const photo=crypto.randomUUID(), pending=crypto.randomUUID(), other=crypto.randomUUID(), audio=crypto.randomUUID();
+    for (const [id,house,owner,state,kind,mime,duration] of [[photo,houseA,users.a,"ready","photo","image/jpeg",null], [pending,houseA,users.a,"pending","photo",null,null], [other,houseB,users.b,"ready","photo","image/jpeg",null], [audio,houseA,users.a,"ready","audio","audio/mp4",60]] as const) {
+      await database.query("insert into public.media_objects(id,house_id,owner_id,storage_path,state,media_type,mime_type,size_bytes,duration_seconds) values ($1,$2,$3,$4,$5,$6,$7,1024,$8)",[id,house,owner,`${house}/${id}`,state,kind,mime,duration]);
+    }
+    expect((await board(users.partnerA,houseA,crypto.randomUUID(),"append",0,{type:"photo",payload:{caption:"Tấm ảnh"},mediaId:photo})).outcome).toBe("applied");
+    expect((await board(users.a,houseA,crypto.randomUUID(),"append",0,{type:"voice",payload:{},mediaId:audio})).outcome).toBe("applied");
+    for (const mediaId of [pending,other,audio]) await expect(board(users.a,houseA,crypto.randomUUID(),"append",0,{type:"photo",payload:{},mediaId})).rejects.toMatchObject({code:"42501"});
+    expect((await asUser<{id:string}>(users.partnerA,"select id from public.media_objects")).map((r)=>r.id).sort()).toEqual([photo,audio].sort());
+    expect(await asUser(users.outsider,"select * from public.media_objects")).toEqual([]);
+    await expect(asUser(users.a,"update public.media_objects set state='ready' where id=$1",[pending])).rejects.toMatchObject({code:"42501"});
   });
 });

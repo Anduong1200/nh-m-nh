@@ -1,4 +1,4 @@
-import { openDB, type DBSchema, type IDBPDatabase, type IDBPObjectStore } from "idb";
+import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 
 export type OfflineContentKind = "note" | "doodle";
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -37,6 +37,9 @@ export interface QueuedOperation {
   payload: JsonValue;
   createdAt: string;
   state: "pending" | "conflict";
+  sequence?: number;
+  resolutionOf?: string;
+  resolutionOperationId?: string;
   conflict?: {
     local: JsonValue;
     remote: JsonValue;
@@ -61,6 +64,7 @@ export interface RecentContent {
 }
 
 interface OfflineSchema extends DBSchema {
+  epochs: { key: string; value: { accountId: string; epoch: number } };
   drafts: { key: [string, string]; value: OfflineDraft; indexes: { "by-account": string } };
   operations: { key: [string, string]; value: QueuedOperation; indexes: { "by-account": string } };
   recent: { key: [string, string]; value: RecentContent; indexes: { "by-account": string } };
@@ -74,7 +78,7 @@ const cleanupInProgress = new Set<string>();
 let connection: Promise<IDBPDatabase<OfflineSchema>> | undefined;
 
 function database() {
-  connection ??= openDB<OfflineSchema>(DB_NAME, 2, {
+  connection ??= openDB<OfflineSchema>(DB_NAME, 3, {
     async upgrade(db, oldVersion, newVersion, tx) {
       if (oldVersion < 1) {
         for (const name of ["drafts", "operations", "recent"] as const) {
@@ -99,6 +103,7 @@ function database() {
           }
         }
       }
+      if (oldVersion < 3) db.createObjectStore("epochs", { keyPath: "accountId" });
     },
     blocking() {
       // Let a later schema version upgrade safely; no content is deleted here.
@@ -134,6 +139,7 @@ export type DraftSaveResult =
 /** Local persistence only: account scoping does not replace authentication or RLS. */
 export class AccountOfflineStore {
   private cleared = false;
+  private readonly epoch: Promise<number>;
 
   constructor(private readonly accountId: string) {
     validateId(accountId, "Account ID");
@@ -141,14 +147,35 @@ export class AccountOfflineStore {
     const accountHandles = handles.get(accountId) ?? new Set<AccountOfflineStore>();
     accountHandles.add(this);
     handles.set(accountId, accountHandles);
+    this.epoch = database().then((db) => db.get("epochs", accountId)).then((record) => record?.epoch ?? 0);
+    void this.epoch.catch(() => {}); // Public operations report IDB failures to the caller.
   }
 
   private async db() {
     this.assertActive();
     const db = await database();
     this.assertActive();
+    await this.assertEpoch({ get: (key) => db.get("epochs", key) });
     return db;
   }
+
+  private async assertEpoch(store: { get(key: string): Promise<{ epoch: number } | undefined> }) {
+    const initial = await this.epoch;
+    const current = await store.get(this.accountId);
+    this.assertActive();
+    if ((current?.epoch ?? 0) !== initial) throw new Error("This account store was cleared in another tab.");
+  }
+
+  private async writeStore<T extends "drafts" | "operations" | "recent">(name: T) {
+    const db = await this.db();
+    const tx = db.transaction([name, "epochs"], "readwrite");
+    void tx.done.catch(() => {});
+    await this.assertEpoch(tx.objectStore("epochs"));
+    return { tx, store: tx.objectStore(name) };
+  }
+
+  /** Persistent generation barrier; it is not an authentication grant. */
+  async assertCurrent() { await this.db(); }
 
   private assertActive() {
     if (this.cleared || cleanupInProgress.has(this.accountId)) {
@@ -177,9 +204,12 @@ export class AccountOfflineStore {
     validateId(input.id, "Draft ID");
     validateId(input.houseId, "House ID");
     if (input.expectedVersion !== null) validateVersion(input.expectedVersion);
-    const db = await this.db();
-    const tx = db.transaction("drafts", "readwrite");
-    const current = await tx.store.get([this.accountId, input.id]);
+    const { tx, store } = await this.writeStore("drafts");
+    const current = await store.get([this.accountId, input.id]);
+    if (current && current.houseId !== input.houseId) {
+      await tx.done;
+      throw new Error("Draft House cannot be changed.");
+    }
     if ((current?.version ?? null) !== input.expectedVersion) {
       await tx.done;
       return { status: "conflict", current, proposed: structuredClone(input) };
@@ -194,7 +224,7 @@ export class AccountOfflineStore {
       version: (current?.version ?? 0) + 1,
       updatedAt: new Date().toISOString(),
     };
-    await tx.store.put(draft);
+    await store.put(draft);
     await tx.done;
     return { status: "saved", draft };
   }
@@ -203,6 +233,9 @@ export class AccountOfflineStore {
     validateId(input.entityId, "Entity ID");
     validateId(input.houseId, "House ID");
     if (input.mutation === "update") validateVersion(input.baseVersion);
+    const { tx, store } = await this.writeStore("operations");
+    const previous = await store.index("by-account").getAll(this.accountId);
+    const sequence = previous.reduce((max, row) => Math.max(max, row.sequence ?? 0), 0) + 1;
     const operation: QueuedOperation = {
       accountId: this.accountId,
       houseId: input.houseId,
@@ -215,9 +248,11 @@ export class AccountOfflineStore {
       payload: input.payload,
       state: "pending",
       createdAt: new Date().toISOString(),
+      sequence,
     };
     // add (never put) prevents accidental replacement of queued work.
-    await (await this.db()).add("operations", operation);
+    await store.add(operation);
+    await tx.done;
     return operation;
   }
 
@@ -228,9 +263,8 @@ export class AccountOfflineStore {
   async preserveConflict(operationId: string, remote: JsonValue, remoteVersion: number) {
     validateId(operationId, "Operation ID");
     validateVersion(remoteVersion);
-    const db = await this.db();
-    const tx = db.transaction("operations", "readwrite");
-    const operation = await tx.store.get([this.accountId, operationId]);
+    const { tx, store } = await this.writeStore("operations");
+    const operation = await store.get([this.accountId, operationId]);
     if (!operation) {
       await tx.done;
       throw new Error("The queued operation does not exist for this account.");
@@ -244,7 +278,7 @@ export class AccountOfflineStore {
         remoteVersion,
         detectedAt: new Date().toISOString(),
       };
-      await tx.store.put(operation);
+      await store.put(operation);
     }
     await tx.done;
     return operation;
@@ -253,14 +287,15 @@ export class AccountOfflineStore {
   /** Call only after a future server sync validates and acknowledges this exact ID. */
   async acknowledgeOperation(operationId: string) {
     validateId(operationId, "Operation ID");
-    const db = await this.db();
-    const tx = db.transaction("operations", "readwrite");
-    const operation = await tx.store.get([this.accountId, operationId]);
+    const { tx, store } = await this.writeStore("operations");
+    const operation = await store.get([this.accountId, operationId]);
     if (operation?.state === "conflict") {
       await tx.done;
       throw new Error("Resolve the preserved conflict before acknowledging this operation.");
     }
-    await tx.store.delete([this.accountId, operationId]);
+    const ancestors = operation ? await this.resolutionAncestors(operation, store) : [];
+    for (const parent of ancestors) await store.delete([this.accountId, parent.operationId]);
+    await store.delete([this.accountId, operationId]);
     await tx.done;
   }
 
@@ -268,22 +303,33 @@ export class AccountOfflineStore {
     validateId(input.id, "Content ID");
     validateId(input.houseId, "House ID");
     validateVersion(input.serverVersion);
-    const db = await this.db();
-    const tx = db.transaction("recent", "readwrite");
-    await tx.store.put({ ...input, accountId: this.accountId, cachedAt: new Date().toISOString() });
-    await this.pruneRecent(tx.store);
+    const { tx, store } = await this.writeStore("recent");
+    const previous = await store.get([this.accountId, input.id]);
+    if (previous && previous.houseId !== input.houseId) { await tx.done; throw new Error("Cached content House cannot be changed."); }
+    if (!previous || previous.serverVersion <= input.serverVersion) await store.put({ ...input, accountId: this.accountId, cachedAt: new Date().toISOString() });
+    await this.pruneRecent(store);
     await tx.done;
   }
 
   async listRecent() {
-    const db = await this.db();
-    const tx = db.transaction("recent", "readwrite");
-    const recent = await this.pruneRecent(tx.store);
+    const { tx, store } = await this.writeStore("recent");
+    const recent = await this.pruneRecent(store);
     await tx.done;
     return recent;
   }
 
-  private async pruneRecent(recentStore: IDBPObjectStore<OfflineSchema, ["recent"], "recent", "readwrite">) {
+  private async resolutionAncestors(operation: QueuedOperation, store: { get(key: [string, string]): Promise<QueuedOperation | undefined> }) {
+    const parents: QueuedOperation[] = [], seen = new Set([operation.operationId]);
+    let child = operation;
+    while (child.resolutionOf) {
+      const parent = await store.get([this.accountId, child.resolutionOf]);
+      if (!parent || seen.has(parent.operationId) || parent.state !== "conflict" || parent.houseId !== operation.houseId || parent.entityId !== operation.entityId || parent.resolutionOperationId !== child.operationId) throw new Error("Resolution chain does not match.");
+      seen.add(parent.operationId); parents.push(parent); child = parent;
+    }
+    return parents;
+  }
+
+  private async pruneRecent(recentStore: { index(name: "by-account"): { getAll(key: string): Promise<RecentContent[]> }; delete(key: [string, string]): Promise<unknown> }) {
     const cutoff = Date.now() - RECENT_CONTENT_MAX_AGE_MS;
     const records = (await recentStore.index("by-account").getAll(this.accountId))
       .sort((a, b) => b.cachedAt.localeCompare(a.cachedAt) || a.id.localeCompare(b.id));
@@ -293,6 +339,50 @@ export class AccountOfflineStore {
       if (!keepIds.has(record.id)) await recentStore.delete([this.accountId, record.id]);
     }
     return keep;
+  }
+
+  /** Explicit replacement; original conflict stays durable until this operation is acknowledged. */
+  async queueConflictReplacement(operationId: string, payload: JsonValue, baseVersion: number) {
+    validateVersion(baseVersion);
+    if (baseVersion < 1) throw new Error("A replacement requires an authoritative version.");
+    const { tx, store } = await this.writeStore("operations");
+    const original = await store.get([this.accountId, operationId]);
+    if (!original || original.state !== "conflict") { await tx.done; throw new Error("Preserved conflict required."); }
+    if (original.resolutionOperationId) {
+      const existing = await store.get([this.accountId, original.resolutionOperationId]);
+      await tx.done;
+      if (!existing || JSON.stringify(existing.payload) !== JSON.stringify(payload) || existing.baseVersion !== baseVersion) throw new Error("A resolution is already pending.");
+      return existing;
+    }
+    const records = await store.index("by-account").getAll(this.accountId);
+    const replacement: QueuedOperation = { ...original, operationId: crypto.randomUUID(), mutation: "update", payload: structuredClone(payload), baseVersion,
+      state: "pending", resolutionOf: original.operationId,
+      sequence: records.reduce((max, row) => Math.max(max, row.sequence ?? 0), 0) + 1, createdAt: new Date().toISOString() };
+    delete replacement.conflict;
+    delete replacement.resolutionOperationId;
+    await store.add(replacement);
+    await store.put({ ...original, resolutionOperationId: replacement.operationId });
+    await tx.done;
+    return replacement;
+  }
+
+  /** Explicit keep-remote choice archives the local proposal as a separate draft. */
+  async keepRemoteConflict(operationId: string): Promise<OfflineDraft> {
+    const db = await this.db();
+    const tx = db.transaction(["drafts", "operations", "epochs"], "readwrite");
+    void tx.done.catch(() => {});
+    await this.assertEpoch(tx.objectStore("epochs"));
+    const operation = await tx.objectStore("operations").get([this.accountId, operationId]);
+    if (!operation || operation.state !== "conflict" || operation.resolutionOperationId) { await tx.done; throw new Error("Unresolved conflict required."); }
+    const chain = [operation, ...await this.resolutionAncestors(operation, tx.objectStore("operations"))];
+    const drafts: OfflineDraft[] = chain.map((proposal) => ({ accountId: this.accountId, houseId: proposal.houseId, schemaVersion: proposal.schemaVersion,
+      id: crypto.randomUUID(), kind: proposal.entity, payload: structuredClone(proposal.payload), version: 1, updatedAt: new Date().toISOString() }));
+    try {
+      for (const draft of drafts) await tx.objectStore("drafts").add(draft);
+      for (const proposal of chain) await tx.objectStore("operations").delete([this.accountId, proposal.operationId]);
+    } catch (error) { tx.abort(); throw error; }
+    await tx.done;
+    return drafts[0]!;
   }
 }
 
@@ -308,7 +398,9 @@ export async function clearAccountOfflineData(accountId: string) {
   handles.delete(accountId);
   try {
     const db = await database();
-    const tx = db.transaction(["drafts", "operations", "recent"], "readwrite");
+    const tx = db.transaction(["drafts", "operations", "recent", "epochs"], "readwrite");
+    const generation = await tx.objectStore("epochs").get(accountId);
+    await tx.objectStore("epochs").put({ accountId, epoch: (generation?.epoch ?? 0) + 1 });
     for (const name of ["drafts", "operations", "recent"] as const) {
       const store = tx.objectStore(name);
       const keys = await store.index("by-account").getAllKeys(accountId);

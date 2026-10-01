@@ -66,6 +66,8 @@ Mặc định gọn: một ô **Tên / biệt danh** lưu vào `profiles.display
 
 ### M2. Cần chốt quyền sửa/xóa shared object trước schema
 
+**Cập nhật 2026-10-02:** người dùng đã chốt quyền Board: cả hai được sửa/move; chỉ người tạo được đưa vào thùng rác và khôi phục. Hợp đồng triển khai, retry và offline nằm trong [BOARD_DOMAIN.md](BOARD_DOMAIN.md). Không triển khai purge.
+
 Canonical docs yêu cầu isolation theo House nhưng chưa quy định đủ quyền sửa/xóa Board giữa hai thành viên. Không tự coi đề xuất là đã được duyệt.
 
 Đề xuất để chốt: cả hai được xem và thêm; cả hai chỉnh/move shared object với version check; bản nháp chưa chia sẻ là riêng theo account; thao tác đưa vào thùng rác phải có quy tắc rõ, phục hồi được. Cần quyết định ai được đưa object của người kia vào thùng rác. Whiteboard là không gian cả hai chỉnh async, dùng version check. Không triển khai purge vĩnh viễn trong Phase 3.

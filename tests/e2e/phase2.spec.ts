@@ -17,6 +17,7 @@ test("Home keeps Presence and Knock accessible while identity awaits its migrati
 });
 
 test("Vietnamese headings load locally and room labels keep both mascots visible", async ({ page }) => {
+  test.setTimeout(90_000); // Twelve responsive/theme combinations on Windows WebKit.
   await page.goto(room(randomUUID()));
   await expect(page.getByRole("heading", { name: "Về Nhà rồi." })).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
@@ -35,6 +36,12 @@ test("Vietnamese headings load locally and room labels keep both mascots visible
     await page.setViewportSize({ width, height: 1000 });
     for (const theme of ["day", "night"]) {
       await page.getByLabel("Chọn giao diện ánh sáng").selectOption(theme);
+      // The room background settles before interactive text finishes its color
+      // transition. Measure the final palette, not a transient mixed theme.
+      await page.evaluate(async () => {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        await Promise.all(document.getAnimations().filter((animation) => "transitionProperty" in animation).map((animation) => animation.finished.catch(() => {})));
+      });
       await expect.poll(() => page.locator(".home-interactive-room").evaluate((room) => {
         const probe = document.createElement("span");
         probe.style.color = "var(--paper)";
@@ -198,6 +205,7 @@ test("notification preferences explain foreground limits and preserve private de
 });
 
 test("browser notification needs explicit permission and never includes private text by default", async ({ page, context }) => {
+  test.setTimeout(60_000); // Two-tab notification flow can take ~28s on Windows WebKit.
   const session = randomUUID();
   await page.addInitScript(() => {
     Reflect.set(window, "__noticeRequests", 0);

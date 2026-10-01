@@ -1,5 +1,7 @@
 # Supabase migrations
 
+Board domain adds `20261002010000_board_domain.sql`: shared edit rights, creator-only trash/restore, optimistic versions, immutable retry receipts, and same-House private media references. Client writes use only `apply_board_operation`; old Board write RPC grants are revoked. Existing projects use the guarded transactional `../install-board-domain.sql` (Board absent) or `../upgrade-board-domain.sql` (legacy Board present). Regenerate with `node scripts/generate-board-upgrade.mjs`. No remote schema is modified by generation. Read [the contract and verification limits](../../docs/BOARD_DOMAIN.md) before UI integration or deployment.
+
 The bootstrap creates no SQL tables, policies, buckets, or user data. Add schema only with the feature that needs it and its authorization tests. No remote Supabase project is configured or changed by the bootstrap.
 
 The Phase 1 identity/House schema is followed by an additive House-authorization repair and the Phase 2 Presence/Knock schema. The repair does not delete user data and deliberately fails if existing memberships violate the two-member or one-active-House constraints. See [ADR 001](../../docs/ADR/001-house-security-and-phase2.md) for policy, concurrency, and rollback decisions.
@@ -10,7 +12,7 @@ Phase 2 writes use `set_presence`, `clear_presence`, `send_knock`, `dismiss_knoc
 
 The user confirmed that no Supabase project exists yet. The unapplied original Phase 1 migration received only a creation-order repair: two SELECT policies were moved after their referenced membership table is created. Policy definitions were preserved, and the later additive migration provides the security hardening. The full chain now applies from a fresh database. No remote database, user data, or installed migration history was changed.
 
-For the newly created development project, `../setup-new-project.sql` is a generated, one-time SQL Editor installation artifact, not an additional migration. Regenerate with `node scripts/generate-supabase-setup.mjs`. It preserves each canonical SQL file verbatim, wraps all migrations in one transaction, rejects an existing application schema, and requests PostgREST schema reload. Record the applied timestamps if installing manually; reconcile migration history before later using CLI `db push`. Future schema changes remain versioned migrations; the Dashboard is not a separate source of schema edits.
+For a new development project, `../setup-new-project.sql` is a generated, one-time SQL Editor installation artifact, not an additional migration. Regenerate with `node scripts/generate-supabase-setup.mjs`. It preserves canonical SQL except trailing whitespace, wraps all migrations in one transaction, rejects an existing application schema, and requests PostgREST schema reload. Record the applied timestamps if installing manually; reconcile migration history before later using CLI `db push`. Future schema changes remain versioned migrations; the Dashboard is not a separate source of schema edits.
 
 Name each migration `YYYYMMDDHHMMSS_descriptive_snake_case.sql`, using a UTC timestamp (for example, `20261001090000_create_houses.sql`). Prefer `supabase migration new descriptive_snake_case` when the CLI is installed. Keep applied migrations immutable; introduce a new migration for a later change.
 

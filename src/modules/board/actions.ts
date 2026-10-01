@@ -1,63 +1,49 @@
 "use server";
-
+import { requireVerifiedUser } from "@/modules/auth/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { type BoardItem, boardItemFromRow, parseBoardItemInput, parseBoardItemUpdate } from "./model";
+import { getMyHouse } from "@/modules/houses/server";
+import { boardReceiptFromData, parseBoardContext, parseBoardItemInput, parseBoardItemUpdate, type BoardMutation, type BoardReceipt, type BoardItem } from "./model";
+import { readBoardItems } from "./server";
 
-export async function appendBoardObjectAction(input: unknown): Promise<{ item?: BoardItem; error?: string }> {
-  const parsed = parseBoardItemInput(input);
-  if (parsed.error || !parsed.value) return { error: parsed.error ?? "Dữ liệu không hợp lệ" };
-  const { id, type, payload, x, y, rotation, zIndex } = parsed.value;
-
-  const supabase = await createSupabaseServerClient("read-write");
-  const { data, error } = await supabase.rpc("append_board_object", {
-    p_id: id,
-    p_type: type,
-    p_payload: payload,
-    p_x: x ?? 0,
-    p_y: y ?? 0,
-    p_rotation: rotation ?? 0,
-    p_z_index: zIndex ?? 0,
-  });
-
-  const item = boardItemFromRow(Array.isArray(data) ? data[0] : data);
-  if (error || !item || item.id !== id) {
-    if (error?.code === "42501" || error?.code === "28000") {
-      return { error: "Không thể thêm vào bảng. Có thể bạn không còn trong Nhà này." };
-    }
-    return { error: "Chưa lưu được vào bảng chung." };
-  }
-
-  return { item };
+export type BoardActionResult = { item?: BoardItem; receipt?: BoardReceipt; error?: string; conflict?: boolean; blocked?: boolean };
+async function apply(operation: BoardMutation, expectedContext: unknown): Promise<BoardActionResult> {
+  try {
+    const user = await requireVerifiedUser();
+    const context = parseBoardContext(expectedContext);
+    if (!context || context.accountId !== user.id) return { error: "Phiên đăng nhập đã đổi. Bản đang viết vẫn được giữ.", blocked: true };
+    const house = await getMyHouse();
+    if (!house || house.id !== context.houseId) return { error: "Nhà đã đổi. Bản đang viết vẫn được giữ.", blocked: true };
+    const client = await createSupabaseServerClient("read-write");
+    const { data, error } = await client.rpc("apply_board_operation", {
+      p_operation_id: operation.operationId, p_house_id: context.houseId, p_item_id: operation.id,
+      p_mutation: operation.mutation, p_expected_version: operation.expectedVersion, p_data: operation.data,
+    });
+    if (error) return { error: "Chưa lưu được thay đổi trên bảng. Bản đang viết vẫn được giữ.", blocked: error.code === "42501" || error.code === "28000" };
+    const receipt = boardReceiptFromData(data, context, operation);
+    if (!receipt) return { error: "Chưa xác nhận được lần lưu. Bạn có thể thử lại." };
+    if (receipt.outcome === "conflict") return { receipt, conflict: true, error: "Vật dụng đã thay đổi. Chọn bản bạn muốn giữ." };
+    return { item: receipt.item, receipt };
+  } catch { return { error: "Chưa xác nhận được kết nối và quyền vào Nhà. Bản đang viết vẫn được giữ." }; }
 }
-
-export async function updateBoardObjectAction(input: unknown): Promise<{ item?: BoardItem; error?: string; conflict?: boolean }> {
+export async function appendBoardObjectAction(input: unknown, expectedContext?: unknown): Promise<BoardActionResult> {
+  const parsed = parseBoardItemInput(input);
+  if (!parsed.value) return { error: parsed.error ?? "Dữ liệu không hợp lệ." };
+  const { id, operationId, ...data } = parsed.value;
+  return apply({ id, operationId, mutation: "append", expectedVersion: 0, data }, expectedContext);
+}
+export async function updateBoardObjectAction(input: unknown, expectedContext?: unknown): Promise<BoardActionResult> {
   const parsed = parseBoardItemUpdate(input);
-  if (parsed.error || !parsed.value) return { error: parsed.error ?? "Dữ liệu không hợp lệ" };
-  
-  const { id, expectedVersion, payload, x, y, rotation, zIndex, deleted } = parsed.value;
-
-  const supabase = await createSupabaseServerClient("read-write");
-  const { data, error } = await supabase.rpc("update_board_object", {
-    p_id: id,
-    p_expected_version: expectedVersion,
-    p_payload: payload !== undefined ? payload : null,
-    p_x: x !== undefined ? x : null,
-    p_y: y !== undefined ? y : null,
-    p_rotation: rotation !== undefined ? rotation : null,
-    p_z_index: zIndex !== undefined ? zIndex : null,
-    p_deleted: deleted !== undefined ? deleted : null,
-  });
-
-  const item = boardItemFromRow(Array.isArray(data) ? data[0] : data);
-  if (error || !item || item.id !== id) {
-    if (error?.code === "40001") {
-      return { error: "Vật dụng này vừa được người kia cập nhật. Hãy thử lại với nội dung mới nhất.", conflict: true };
-    }
-    if (error?.code === "P0002") {
-      return { error: "Vật dụng không tồn tại hoặc đã bị xóa." };
-    }
-    return { error: "Chưa lưu được thay đổi." };
-  }
-
-  return { item };
+  if (!parsed.value) return { error: parsed.error ?? "Dữ liệu không hợp lệ." };
+  const { id, operationId, expectedVersion, deleted, ...data } = parsed.value;
+  return apply({ id, operationId, expectedVersion, mutation: deleted === true ? "trash" : deleted === false ? "restore" : "update", data }, expectedContext);
+}
+export async function getBoardSnapshotAction(expectedContext: unknown): Promise<{ context?: { accountId: string; houseId: string }; items?: BoardItem[]; error?: string; blocked?: boolean }> {
+  try {
+    const user = await requireVerifiedUser();
+    const context = parseBoardContext(expectedContext);
+    const house = await getMyHouse();
+    if (!context || user.id !== context.accountId || house?.id !== context.houseId) return { error: "Phiên đăng nhập hoặc Nhà đã đổi.", blocked: true };
+    const result = await readBoardItems(context.houseId, true);
+    return result.items ? { context, items: result.items } : result;
+  } catch { return { error: "Chưa tải được bảng chung." }; }
 }

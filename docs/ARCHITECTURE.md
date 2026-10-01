@@ -77,6 +77,8 @@ Conflict:
 
 ## Realtime
 
+Board writes use an atomic operation ledger and immutable retry receipts, with creator-only trash/restore and shared edit rights. Note/doodle offline operations bind to the original account/House and preserve conflicts; a persistent IndexedDB epoch prevents late responses from repopulating data after logout in another tab. The domain requires adapting existing UI action calls and replacing the legacy coordinator before integration. See [Board domain](BOARD_DOMAIN.md) for schema, action and media-reference boundaries.
+
 Use realtime for:
 - fresh presence;
 - new Knock;
