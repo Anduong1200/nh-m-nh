@@ -6,7 +6,7 @@ vi.mock("@/modules/auth/server", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/modules/auth/server")>(), requireVerifiedUser: mocks.requireUser,
 }));
 vi.mock("@/modules/houses/server", () => ({ getMyHouse: mocks.getHouse }));
-vi.mock("@/modules/presence/server", () => ({ loadPhase2State: mocks.loadState }));
+vi.mock("@/modules/houses/state", () => ({ loadHomeState: mocks.loadState }));
 
 import { AuthenticationRequiredError } from "@/modules/auth/server";
 import { DEFAULT_NOTIFICATION_PREFERENCES } from "@/modules/notifications/model";

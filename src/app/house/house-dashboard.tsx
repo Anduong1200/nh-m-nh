@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { HouseWithMembers } from "@/modules/houses/server";
 import { createPairingInviteAction } from "@/modules/houses/actions";
-import type { Phase2State } from "@/modules/presence/server";
+import type { HomeState } from "@/modules/houses/state";
 import { clearPresenceAction, setPresenceAction } from "@/modules/presence/actions";
 import type { PresenceInput } from "@/modules/presence/model";
 import { dismissKnockAction, sendKnockAction } from "@/modules/knocks/actions";
@@ -38,10 +38,10 @@ export function HouseDashboard({
 }: {
   house: HouseWithMembers;
   currentUserId: string;
-  initialState: Phase2State | null;
+  initialState: HomeState | null;
   initialError?: string | null;
 }) {
-  const [state, setState] = useState<Phase2State | null>(initialState);
+  const [state, setState] = useState<HomeState | null>(initialState);
   const [currentHouse, setCurrentHouse] = useState(house);
   const [loadError, setLoadError] = useState<string | null>(initialError);
   const [refreshing, setRefreshing] = useState(false);
@@ -80,7 +80,7 @@ export function HouseDashboard({
         return false;
       }
       if (!response.ok) throw new Error("State unavailable");
-      const payload = await response.json() as { currentUserId?: string; house?: HouseWithMembers; state?: Phase2State };
+      const payload = await response.json() as { currentUserId?: string; house?: HouseWithMembers; state?: HomeState };
       if (controller.signal.aborted || version !== requestVersion.current) return false;
       if (
         payload.currentUserId !== currentUserId || payload.house?.id !== house.id ||

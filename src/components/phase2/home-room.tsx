@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { HomeScene } from "@/components/home-scene";
 import { ThemeControl } from "@/components/theme-control";
 import type { HouseWithMembers } from "@/modules/houses/server";
@@ -9,7 +9,7 @@ import {
   MOODS, MOOD_LABELS, isPresenceVisible, parsePresenceInput,
   type PresenceInput, type PresenceStatus,
 } from "@/modules/presence/model";
-import type { Phase2State } from "@/modules/presence/server";
+import type { HomeState } from "@/modules/houses/state";
 import type { PresenceActionResult } from "@/modules/presence/actions";
 import {
   KNOCK_STICKERS, KNOCK_STICKER_LABELS, parseKnockInput,
@@ -21,11 +21,15 @@ import {
 } from "@/modules/notifications/model";
 import { HomeDialog } from "./home-dialog";
 import { Board } from "@/components/phase3/board";
+import {
+  browserNotificationTransport, ForegroundKnockNotifications, readForegroundPermission,
+  serverForegroundPermission, subscribeForegroundPermission,
+} from "@/modules/notifications/foreground";
 
 export type HomeRoomProps = {
   house: HouseWithMembers;
   currentUserId: string;
-  state: Phase2State | null;
+  state: HomeState | null;
   refresh: () => Promise<void>;
   savePresence: (input: PresenceInput) => Promise<PresenceActionResult>;
   clearPresence: (expectedVersion: number) => Promise<PresenceActionResult>;
@@ -38,22 +42,6 @@ export type HomeRoomProps = {
   online?: boolean;
   signOutControl?: ReactNode;
 };
-
-const permissionEvent = "nha-minh:notification-permission";
-function readPermission(): NotificationPermission | "unsupported" {
-  return typeof window !== "undefined" && "Notification" in window
-    ? Notification.permission
-    : "unsupported";
-}
-function serverPermission(): "unsupported" { return "unsupported"; }
-function subscribePermission(onChange: () => void) {
-  window.addEventListener(permissionEvent, onChange);
-  window.addEventListener("focus", onChange);
-  return () => {
-    window.removeEventListener(permissionEvent, onChange);
-    window.removeEventListener("focus", onChange);
-  };
-}
 
 function localTimeZone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Ho_Chi_Minh";
@@ -103,14 +91,13 @@ export function HomeRoom({
   const [knockNote, setKnockNote] = useState("");
   const [knockSticker, setKnockSticker] = useState<KnockSticker>("leaf");
   const [knockAttempt, setKnockAttempt] = useState<KnockInput | null>(null);
-  const knownKnocks = useRef<Set<string> | null>(null);
-  const openNotifications = useRef<Notification[]>([]);
+  const [notifications] = useState(() => new ForegroundKnockNotifications());
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const permission = useSyncExternalStore(subscribePermission, readPermission, serverPermission);
+  const permission = useSyncExternalStore(subscribeForegroundPermission, readForegroundPermission, serverForegroundPermission);
   const ownStatus = state?.statuses.find((status) => status.userId === currentUserId);
 
   useEffect(() => {
@@ -120,31 +107,13 @@ export function HomeRoom({
 
   useEffect(() => {
     if (!state) return;
-    const incoming = state.knocks.filter((knock) => knock.recipientId === currentUserId);
-    if (knownKnocks.current === null) {
-      knownKnocks.current = new Set(incoming.map((knock) => knock.id));
-      return;
-    }
-    const fresh = incoming.filter((knock) => !knownKnocks.current!.has(knock.id));
-    incoming.forEach((knock) => knownKnocks.current!.add(knock.id));
-    if (
-      permission !== "granted" || !online || document.visibilityState !== "visible" ||
-      !canNotifyKnock(state.preferences)
-    ) return;
-    for (const knock of fresh) {
-      const content = formatKnockNotification(knock, state.preferences);
-      try {
-        openNotifications.current.push(new Notification(content.title, { body: content.body, tag: knock.id }));
-      } catch {
-        // Some installed mobile browsers lack foreground Notification construction.
-        // The private in-app shelf remains available on all supported browsers.
-      }
-    }
-  }, [state, currentUserId, online, permission]);
+    notifications.observe({ recipientId: currentUserId, knocks: state.knocks, preferences: state.preferences,
+      online, visible: document.visibilityState === "visible" });
+  }, [state, currentUserId, online, permission, notifications]);
 
   useEffect(() => () => {
-    openNotifications.current.forEach((notification) => notification.close());
-  }, []);
+    notifications.close();
+  }, [notifications]);
 
   function openPresence(event: MouseEvent<HTMLButtonElement>) {
     event.currentTarget.focus();
@@ -169,10 +138,6 @@ export function HomeRoom({
     setFormError(null);
     setEditNameDraft(house.members.find(m => m.user_id === currentUserId)?.profile?.display_name ?? "");
     setOpenDialog("edit-name");
-  }
-  function openBoard(event: MouseEvent<HTMLButtonElement>) {
-    event.currentTarget.focus();
-    setOpenDialog("board");
   }
   function closeDialog() { setOpenDialog(null); }
 
@@ -267,8 +232,7 @@ export function HomeRoom({
   async function requestNotifications() {
     if (permission === "unsupported" || permission === "denied") return;
     try {
-      await Notification.requestPermission();
-      window.dispatchEvent(new Event(permissionEvent));
+      await browserNotificationTransport.requestPermission();
     } catch { setFormError("Trình duyệt này chưa bật được thông báo. Bạn vẫn có thể thấy cú gõ trong Nhà."); }
   }
 
@@ -361,11 +325,7 @@ export function HomeRoom({
                             <button
                               type="button"
                               className="home-icon-button"
-                              onClick={() => {
-                                setEditNameDraft(member.profile?.display_name || "");
-                                setFormError(null);
-                                setOpenDialog("edit-name");
-                              }}
+                              onClick={openEditName}
                               aria-label="Sửa tên / biệt danh"
                               style={{ marginLeft: "6px", fontSize: "12px", border: "none", background: "none", color: "var(--muted)", cursor: "pointer" }}
                             >
@@ -467,7 +427,8 @@ export function HomeRoom({
         </form>
       </HomeDialog>
 
-      {openDialog === "board" && state && (
+      {openDialog === "board" && state?.boardError && <HomeDialog open title="Bảng chung" onClose={closeDialog}><p role="alert">{state.boardError}</p><button type="button" className="home-subtle-button" onClick={() => void refresh()} disabled={!online || refreshing}>Làm mới Nhà</button></HomeDialog>}
+      {openDialog === "board" && state && !state.boardError && (
         <Board
           houseId={house.id}
           accountId={currentUserId}

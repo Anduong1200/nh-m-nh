@@ -91,14 +91,21 @@ describe("Supabase migrations and PostgreSQL House authorization", () => {
     const rows = await database.query<{ relname: string; relrowsecurity: boolean }>(
       "select relname, relrowsecurity from pg_class join pg_namespace n on n.oid=relnamespace where n.nspname='public' and relkind='r'",
     );
-    expect(rows.rows).toHaveLength(8);
+    expect(rows.rows.map((row) => row.relname)).toEqual(expect.arrayContaining([
+      "profiles", "houses", "house_members", "pairing_invites", "presence_entries", "knocks", "knock_dismissals", "notification_preferences",
+    ]));
     expect(rows.rows.every((row) => row.relrowsecurity)).toBe(true);
   });
 
   it("denies anonymous reads and security-definer mutations", async () => {
-    await expect(asUser(null, "select * from public.houses")).rejects.toMatchObject({ code: "42501" });
+    for (const table of ["houses", "presence_entries", "knocks", "knock_dismissals", "notification_preferences"]) {
+      await expect(asUser(null, `select * from public.${table}`)).rejects.toMatchObject({ code: "42501" });
+    }
     await expect(asUser(null, "select public.create_house_with_owner()")).rejects.toMatchObject({ code: "42501" });
     await expect(asUser(null, "select public.send_knock($1, 'note', 'hi')", [operationId])).rejects.toMatchObject({ code: "42501" });
+    await expect(asUser(null, "select public.set_presence('calm',2,'quiet','','',null,0)")).rejects.toMatchObject({ code: "42501" });
+    await expect(asUser(null, "select public.clear_presence(0)")).rejects.toMatchObject({ code: "42501" });
+    await expect(asUser(null, "select public.dismiss_knock($1)", [operationId])).rejects.toMatchObject({ code: "42501" });
   });
 
   it("allows a member to read only their House, its two members, and partner profiles", async () => {
@@ -178,6 +185,17 @@ describe("Supabase migrations and PostgreSQL House authorization", () => {
     await expect(setPresence(users.a, 0)).rejects.toMatchObject({ code: "40001" });
   });
 
+  it("expires exactly at the boundary and reactivates only with the retained owner version", async () => {
+    await setPresence(users.a);
+    // PostgreSQL now() is stable throughout this test's transaction.
+    await database.query("update public.presence_entries set expires_at=now() where user_id=$1", [users.a]);
+    expect(await asUser(users.partnerA, "select * from public.presence_entries")).toEqual([]);
+    expect(await asUser(users.a, "select version from public.presence_entries")).toEqual([{ version: 1 }]);
+    await expect(setPresence(users.a, 0, "delayed initial edit")).rejects.toMatchObject({ code: "40001" });
+    expect((await setPresence(users.a, 1, "Một điều mới"))[0]?.version).toBe(2);
+    expect(await asUser(users.partnerA, "select note from public.presence_entries")).toEqual([{ note: "Một điều mới" }]);
+  });
+
   it("validates status enums, lengths, control characters, and expiry inside PostgreSQL", async () => {
     await expect(asUser(users.a, "select public.set_presence('spying',2,'quiet','','',null,0)")).rejects.toMatchObject({ code: "22023" });
     await expect(asUser(users.a, "select public.set_presence('calm',4,'quiet','','',null,0)")).rejects.toMatchObject({ code: "22023" });
@@ -216,6 +234,46 @@ describe("Supabase migrations and PostgreSQL House authorization", () => {
     await asUser(users.a, "select public.send_knock($1,'note','hi')", [operationId]);
     await expect(asUser(users.a, "update public.knocks set content='rewrite'")).rejects.toMatchObject({ code: "42501" });
     await expect(asUser(users.a, "delete from public.knocks")).rejects.toMatchObject({ code: "42501" });
+  });
+
+  it("validates Knock Unicode bounds and control characters in the database", async () => {
+    await expect(asUser(users.a, "select public.send_knock($1,'note',$2)", [operationId, "two\nlines"])).rejects.toMatchObject({ code: "22023" });
+    await expect(asUser(users.a, "select public.send_knock($1,'note',$2)", [operationId, "🍃".repeat(161)])).rejects.toMatchObject({ code: "22023" });
+    expect(await asUser(users.a, "select content from public.send_knock($1,'note',$2)", [operationId, `  ${"🍃".repeat(160)}  `])).toEqual([{ content: "🍃".repeat(160) }]);
+  });
+
+  it("allows Phase 2 writes only through validated RPCs, even for owners", async () => {
+    await setPresence(users.a);
+    await asUser(users.a, "select public.send_knock($1,'note','hi')", [operationId]);
+    await asUser(users.partnerA, "select public.dismiss_knock($1)", [operationId]);
+    await expect(asUser(users.a, "delete from public.presence_entries")).rejects.toMatchObject({ code: "42501" });
+    await expect(asUser(users.partnerA, "delete from public.knock_dismissals")).rejects.toMatchObject({ code: "42501" });
+    await expect(asUser(users.partnerA, "insert into public.knock_dismissals(knock_id,user_id) values ($1,$2)", [operationId, users.partnerA])).rejects.toMatchObject({ code: "42501" });
+    await expect(asUser(users.a, "insert into public.notification_preferences(user_id) values ($1)", [users.a])).rejects.toMatchObject({ code: "42501" });
+  });
+
+  it("revokes private content and RPC access after a member leaves", async () => {
+    await setPresence(users.partnerA);
+    await asUser(users.a, "select public.send_knock($1,'note','Private')", [operationId]);
+    await asUser(users.partnerA, "select public.dismiss_knock($1)", [operationId]);
+    // Privileged fixture mutation only; V1 does not expose a leave-House feature.
+    await database.query("update public.house_members set status='left',left_at=now() where user_id=$1", [users.partnerA]);
+    for (const table of ["presence_entries", "knocks", "knock_dismissals"]) {
+      expect(await asUser(users.partnerA, `select * from public.${table}`)).toEqual([]);
+    }
+    await expect(setPresence(users.partnerA, 1)).rejects.toMatchObject({ code: "42501" });
+    await expect(asUser(users.partnerA, "select public.send_knock($1,'note','Private')", [operationId])).rejects.toMatchObject({ code: "42501" });
+    await expect(asUser(users.partnerA, "select public.dismiss_knock($1)", [operationId])).rejects.toMatchObject({ code: "42501" });
+  });
+
+  it("fails closed on an archived House for prior members", async () => {
+    await setPresence(users.a);
+    await asUser(users.a, "select public.send_knock($1,'note','Private')", [operationId]);
+    await database.query("update public.houses set state='archived' where id=$1", [houseA]);
+    expect(await asUser(users.a, "select * from public.presence_entries")).toEqual([]);
+    expect(await asUser(users.partnerA, "select * from public.knocks")).toEqual([]);
+    await expect(setPresence(users.a, 1)).rejects.toMatchObject({ code: "42501" });
+    await expect(asUser(users.partnerA, "select public.dismiss_knock($1)", [operationId])).rejects.toMatchObject({ code: "42501" });
   });
 
   it("owns notification preferences per recipient with generic default and validated quiet hours", async () => {

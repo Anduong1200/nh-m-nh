@@ -1,7 +1,7 @@
 "use server";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { type BoardItem, parseBoardItemInput, parseBoardItemUpdate } from "./model";
+import { type BoardItem, boardItemFromRow, parseBoardItemInput, parseBoardItemUpdate } from "./model";
 
 export async function appendBoardObjectAction(input: unknown): Promise<{ item?: BoardItem; error?: string }> {
   const parsed = parseBoardItemInput(input);
@@ -19,31 +19,15 @@ export async function appendBoardObjectAction(input: unknown): Promise<{ item?: 
     p_z_index: zIndex ?? 0,
   });
 
-  if (error || !data || (data as any[]).length === 0) {
+  const item = boardItemFromRow(Array.isArray(data) ? data[0] : data);
+  if (error || !item || item.id !== id) {
     if (error?.code === "42501" || error?.code === "28000") {
       return { error: "Không thể thêm vào bảng. Có thể bạn không còn trong Nhà này." };
     }
     return { error: "Chưa lưu được vào bảng chung." };
   }
 
-  const item = (data as any[])[0];
-  return {
-    item: {
-      id: item.id,
-      houseId: item.house_id,
-      createdBy: item.created_by,
-      type: item.type as "note" | "link",
-      payload: item.payload,
-      x: Number(item.x),
-      y: Number(item.y),
-      rotation: Number(item.rotation),
-      zIndex: item.z_index,
-      version: item.version,
-      createdAt: item.created_at,
-      updatedAt: item.updated_at,
-      deletedAt: item.deleted_at,
-    }
-  };
+  return { item };
 }
 
 export async function updateBoardObjectAction(input: unknown): Promise<{ item?: BoardItem; error?: string; conflict?: boolean }> {
@@ -64,7 +48,8 @@ export async function updateBoardObjectAction(input: unknown): Promise<{ item?: 
     p_deleted: deleted !== undefined ? deleted : null,
   });
 
-  if (error || !data || (data as any[]).length === 0) {
+  const item = boardItemFromRow(Array.isArray(data) ? data[0] : data);
+  if (error || !item || item.id !== id) {
     if (error?.code === "40001") {
       return { error: "Vật dụng này vừa được người kia cập nhật. Hãy thử lại với nội dung mới nhất.", conflict: true };
     }
@@ -74,22 +59,5 @@ export async function updateBoardObjectAction(input: unknown): Promise<{ item?: 
     return { error: "Chưa lưu được thay đổi." };
   }
 
-  const item = (data as any[])[0];
-  return {
-    item: {
-      id: item.id,
-      houseId: item.house_id,
-      createdBy: item.created_by,
-      type: item.type as "note" | "link",
-      payload: item.payload,
-      x: Number(item.x),
-      y: Number(item.y),
-      rotation: Number(item.rotation),
-      zIndex: item.z_index,
-      version: item.version,
-      createdAt: item.created_at,
-      updatedAt: item.updated_at,
-      deletedAt: item.deleted_at,
-    }
-  };
+  return { item };
 }

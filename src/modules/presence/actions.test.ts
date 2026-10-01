@@ -73,6 +73,16 @@ describe("presence mutation authorization boundary", () => {
 });
 
 describe("Knock authorization and retry contract", () => {
+  it.each([
+    { id: "22222222-2222-4222-8222-222222222222" },
+    { content: "different note" },
+    { kind: "sticker", content: "tea" },
+  ])("does not acknowledge a mismatched persisted operation %j", async (patch) => {
+    mocks.rpc.mockResolvedValue({ data: { ...knockRow, ...patch }, error: null });
+    const result = await sendKnockAction({ operationId: knockId, kind: "note", content: "Nghĩ đến cậu" }, "actor");
+    expect(result.error).toBeTruthy();
+    expect(result.knock).toBeUndefined();
+  });
   it("forwards the same operation UUID for safe retries without accepting sender/recipient overrides", async () => {
     mocks.rpc.mockResolvedValue({ data: knockRow, error: null });
     const input = { operationId: knockId, kind: "note", content: "Nghĩ đến cậu", senderId: "victim", recipientId: "outsider", houseId: "other" };

@@ -6,6 +6,6 @@ Explicit mood, energy, availability, one-line note and need, with manual, one-ho
 
 Every Phase 2 mutation also compares the tab's expected viewer with verified identity inside the same action request. A draft from an earlier session cannot be written after another account signs in. The expected viewer is a safety guard, never authorization; database RPCs still derive and authorize the actor. Returned mutation rows must belong to that verified actor.
 
-`loadPhase2State` and `/house/state` load only the verified user's active House, current recipient Knock inbox and own notification preferences. Refresh responses are private and `no-store`; read failures are explicit rather than replaced with fake empty state. State is foreground memory only, outside the shell cache.
+`loadPhase2State` loads only the verified user's active House, current recipient Knock inbox and own notification preferences. Home composition in `houses/state.ts` adds optional Board data separately; Board failure cannot fail the core state. `/house/state` refresh responses are private and `no-store`; core read failures are explicit rather than replaced with fake empty state. State is foreground memory only, outside the shell cache. See `docs/WORKSTREAM_B.md` for the integration contract and verification.
 
 Canonical requirements: `PRODUCT_SPEC.md`, `docs/ARCHITECTURE.md`, `docs/SECURITY.md` and `AGENTS.md`.

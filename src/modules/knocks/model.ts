@@ -37,5 +37,7 @@ export function knockFromRow(row: Record<string, unknown>): Knock | null {
   if (!isUuid(row.id) || typeof row.sender_id !== "string" || typeof row.recipient_id !== "string" ||
     (row.kind !== "note" && row.kind !== "sticker") || typeof row.content !== "string" ||
     typeof row.created_at !== "string" || !Number.isFinite(Date.parse(row.created_at))) return null;
-  return { id: row.id, senderId: row.sender_id, recipientId: row.recipient_id, kind: row.kind, content: row.content, createdAt: row.created_at };
+  const parsed = parseKnockInput({ operationId: row.id, kind: row.kind, content: row.content });
+  if (!parsed.value || row.sender_id === row.recipient_id) return null;
+  return { id: row.id, senderId: row.sender_id, recipientId: row.recipient_id, kind: row.kind, content: parsed.value.content, createdAt: row.created_at };
 }

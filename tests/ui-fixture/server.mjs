@@ -4,7 +4,11 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "esbuild";
 
-const bundle = await build({ entryPoints: ["tests/ui-fixture/entry.tsx"], bundle: true, write: false, format: "esm", platform: "browser", jsx: "automatic", define: { "process.env.NODE_ENV": '"production"' } });
+const bundle = await build({ entryPoints: ["tests/ui-fixture/entry.tsx"], bundle: true, write: false, format: "esm", platform: "browser", jsx: "automatic", define: { "process.env.NODE_ENV": '"production"' },
+  // Phase 2 fixture never imports real server actions or Supabase into its browser bundle.
+  // Board has its own workstream; invoking it here fails explicitly.
+  alias: { "@/modules/board/actions": "./tests/ui-fixture/board-actions.ts" },
+});
 async function styles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = await Promise.all(entries.map(async (entry) => entry.isDirectory() ? styles(join(directory, entry.name)) : entry.name.endsWith(".css") ? readFile(join(directory, entry.name), "utf8") : ""));

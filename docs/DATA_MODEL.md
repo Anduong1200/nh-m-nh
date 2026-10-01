@@ -45,8 +45,12 @@ Constraint:
 - need
 - note
 - expires_at
+- cleared
+- version
 - created_at
 - updated_at
+
+Implemented Presence uses optimistic versions and retains an owner-only conflict version after expiry/clear. Partner reads exclude expired/cleared rows. These timestamps are database internals, not last-seen signals in the client DTO.
 
 ## Knock
 
@@ -54,10 +58,30 @@ Constraint:
 - id
 - house_id
 - sender_id
-- payload_type
-- payload_ref / compact payload
+- recipient_id
+- kind (`note` / `sticker`)
+- content (bounded one-line note / sticker identifier)
 - created_at
-- seen_at
+
+`id` is the stable send-operation UUID. No `seen_at` or read receipt exists. The RPC derives actors and House and retries the same operation idempotently.
+
+### knock_dismissals
+- knock_id
+- user_id
+- dismissed_at
+
+Recipient-owned inbox tidying. The sender cannot read dismissals.
+
+### notification_preferences
+- user_id
+- quiet_enabled
+- start_minute / end_minute
+- timezone
+- preview (`generic` default / `detail` opt-in)
+- knocks_enabled
+- updated_at
+
+Preferences are account-private; quiet hours use a validated IANA zone. Presence/Knock implementation and authorization contracts: [Workstream B](WORKSTREAM_B.md).
 
 ## Board
 

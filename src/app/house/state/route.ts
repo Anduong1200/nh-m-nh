@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { AuthenticationRequiredError, requireVerifiedUser } from "@/modules/auth/server";
 import { getMyHouse } from "@/modules/houses/server";
-import { loadPhase2State } from "@/modules/presence/server";
+import { loadHomeState } from "@/modules/houses/state";
 
 export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "private, no-store, max-age=0", Vary: "Cookie" };
@@ -12,7 +12,7 @@ export async function GET() {
     const user = await requireVerifiedUser();
     const house = await getMyHouse();
     if (!house) return NextResponse.json({ error: "Bạn chưa có Nhà." }, { status: 403, headers });
-    const state = await loadPhase2State(house.id);
+    const state = await loadHomeState(house.id);
     return NextResponse.json({ currentUserId: user.id, house, state }, { headers });
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) return NextResponse.json({ error: "Đăng nhập lại để vào Nhà nhé." }, { status: 401, headers });

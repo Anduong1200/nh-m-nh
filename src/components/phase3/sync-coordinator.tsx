@@ -34,12 +34,12 @@ export function SyncCoordinator({ accountId, houseId }: { accountId: string; hou
           if (op.state === "pending" && op.houseId === houseId) {
             if (op.entity === "note") {
               if (op.mutation === "append") {
-                const res = await appendBoardObjectAction(op.payload as any);
+                const res = await appendBoardObjectAction(op.payload);
                 if (!res.error || res.error.includes("duplicate")) {
                   await store.acknowledgeOperation(op.operationId);
                 }
               } else if (op.mutation === "update") {
-                const res = await updateBoardObjectAction(op.payload as any);
+                const res = await updateBoardObjectAction(op.payload);
                 if (res.conflict) {
                   // Wait, store.preserveConflict handles the conflict state.
                   // For now, we will mark it as conflict in the UI.

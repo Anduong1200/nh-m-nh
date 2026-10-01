@@ -92,10 +92,8 @@ function database() {
           while (cursor) {
             const record = { ...cursor.value };
             // Check if missing to be safe
-            if (!("houseId" in record)) {
-              (record as any).houseId = "legacy";
-              (record as any).schemaVersion = 0;
-              await cursor.update(record);
+            if (!Object.hasOwn(record, "houseId")) {
+              await cursor.update({ ...record, houseId: "legacy", schemaVersion: 0 });
             }
             cursor = await cursor.continue();
           }

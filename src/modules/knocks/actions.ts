@@ -32,7 +32,9 @@ export async function sendKnockAction(input: unknown, expectedViewerId: unknown)
     }
     const row = Array.isArray(data) ? data[0] : data;
     const knock = row && typeof row === "object" ? knockFromRow(row as Record<string, unknown>) : null;
-    return knock?.senderId === user.id ? { knock } : { error: "Chưa xác nhận được cú gõ cửa. Thử lại với cùng lời nhắn nhé." };
+    return knock?.senderId === user.id && knock.id === parsed.value.operationId &&
+      knock.kind === parsed.value.kind && knock.content === parsed.value.content
+      ? { knock } : { error: "Chưa xác nhận được cú gõ cửa. Thử lại với cùng lời nhắn nhé." };
   } catch (error) {
     return failure(error);
   }

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import type { BoardItem, BoardItemInput, BoardItemUpdate } from "@/modules/board/model";
-import { AccountOfflineStore } from "@/lib/offline/store";
+import { useState } from "react";
+import type { BoardItem } from "@/modules/board/model";
+import { AccountOfflineStore, type JsonValue } from "@/lib/offline/store";
 
 import { appendBoardObjectAction, updateBoardObjectAction } from "@/modules/board/actions";
 
@@ -65,7 +65,7 @@ export function Board({ houseId, accountId, initialItems, onClose }: BoardProps)
           entity: "note",
           mutation: "update",
           baseVersion: draggedItem.version,
-          payload: updateData as any
+          payload: updateData
         });
         
         // Optimistically fire the API
@@ -189,7 +189,7 @@ export function Board({ houseId, accountId, initialItems, onClose }: BoardProps)
                         schemaVersion: 1,
                         id: item.id,
                         kind: "note",
-                        payload: updateData.payload,
+                        payload: updateData.payload as JsonValue,
                         expectedVersion: item.version
                       });
                       await store.enqueue({
@@ -199,7 +199,7 @@ export function Board({ houseId, accountId, initialItems, onClose }: BoardProps)
                         entity: "note",
                         mutation: "update",
                         baseVersion: item.version,
-                        payload: updateData as any
+                        payload: updateData as JsonValue
                       });
                       
                       const result = await updateBoardObjectAction(updateData);

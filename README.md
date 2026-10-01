@@ -72,7 +72,7 @@ The foundation includes Next.js/React/strict TypeScript/Tailwind, a public Home 
 
 Read [Phase 2](docs/PHASE2.md) for the preliminary assessment, behavior and verification limits, and [Bootstrap](docs/BOOTSTRAP.md) for the historical foundation report. The unapplied Phase 1 migration's creation order is repaired and all 191 local tests pass, including actual PostgreSQL RLS. The user reports Google sign-in and House entry after development setup; real two-account pairing and bidirectional Knock delivery remain unverified. Do not treat fixture browser tests as hosted cross-device delivery. [Local Google sign-in setup](docs/LOCAL_AUTH_SETUP.md) explains the remaining steps.
 
-The user later reported a successful two-account trial. [Phase 3 review](docs/PHASE3_REVIEW.md) records the remaining Board/Whiteboard/offline work and requested editable names with stable rabbit/owl identities. [Gemini handoff prompt](GEMINI_PHASE3_PROMPT.md) is ready for the next implementation agent; Phase 3 is not implemented yet.
+The user later reported a successful two-account trial. [Phase 3 review](docs/PHASE3_REVIEW.md) records Board/Whiteboard/offline acceptance and requested editable names with stable rabbit/owl identities. Gemini has added identity and Board note/link code; complete Phase 3 acceptance remains pending. [Workstream B](docs/WORKSTREAM_B.md) documents the verified Presence/Knock server, expiry/RLS, notification abstraction, API contract and integration limits on `feature/presence-knock`.
 
 ## Local development
 
@@ -123,4 +123,3 @@ Unit/integration tests cover environment validation, verified identity/cookie ad
 Future tables require RLS and cross-House tests in the same change; enforce two active members transactionally. Future media buckets must remain private. See `docs/SECURITY.md` and `supabase/migrations/README.md` before adding any database-backed flow.
 
 Implementation references: [Next.js installation](https://nextjs.org/docs/app/getting-started/installation), [Tailwind Next.js setup](https://tailwindcss.com/docs/installation/framework-guides/nextjs), [Supabase SSR clients](https://supabase.com/docs/guides/auth/server-side/creating-a-client?framework=nextjs), [Playwright browser projects](https://playwright.dev/docs/browsers).
-# nh-m-nh

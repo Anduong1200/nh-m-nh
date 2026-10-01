@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getMyHouse } from "@/modules/houses/server";
 import { HouseDashboard } from "./house-dashboard";
 import { requireVerifiedUser } from "@/modules/auth/server";
-import { loadPhase2State, type Phase2State } from "@/modules/presence/server";
+import { loadHomeState, type HomeState } from "@/modules/houses/state";
 
 export const metadata = {
   title: "Nhà Mình",
@@ -19,11 +19,11 @@ export default async function HousePage() {
     redirect("/house/setup");
   }
 
-  let initialState: Phase2State | null = null;
+  let initialState: HomeState | null = null;
   let initialError: string | null = null;
   if (house.members.length === 2) {
     try {
-      initialState = await loadPhase2State(house.id);
+      initialState = await loadHomeState(house.id);
     } catch {
       initialError = "Chưa tải được dấu vết trong Nhà. Thử tải lại nhé.";
     }

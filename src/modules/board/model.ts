@@ -37,6 +37,24 @@ export type BoardItemUpdate = {
   deleted?: boolean;
 };
 
+/** Validate the optional Home data boundary; never cast untrusted database rows to a DTO. */
+export function boardItemFromRow(input: unknown): BoardItem | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const row = input as Record<string, unknown>;
+  const coordinate = (value: unknown) => typeof value === "number" ? value
+    : typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value) ? Number(value) : NaN;
+  const x = coordinate(row.x), y = coordinate(row.y), rotation = coordinate(row.rotation);
+  const validTime = (value: unknown): value is string => typeof value === "string" && Number.isFinite(Date.parse(value));
+  if (!isUuid(row.id) || !isUuid(row.house_id) || !isUuid(row.created_by) ||
+    (row.type !== "note" && row.type !== "link") || !row.payload || typeof row.payload !== "object" || Array.isArray(row.payload) ||
+    ![x, y, rotation].every(Number.isFinite) || typeof row.z_index !== "number" || !Number.isInteger(row.z_index) ||
+    typeof row.version !== "number" || !Number.isSafeInteger(row.version) || row.version < 1 ||
+    !validTime(row.created_at) || !validTime(row.updated_at) || (row.deleted_at !== null && !validTime(row.deleted_at))) return null;
+  return { id: row.id, houseId: row.house_id, createdBy: row.created_by, type: row.type,
+    payload: row.payload as Record<string, unknown>, x, y, rotation, zIndex: row.z_index, version: row.version,
+    createdAt: row.created_at, updatedAt: row.updated_at, deletedAt: row.deleted_at };
+}
+
 export function parseBoardItemInput(input: unknown): { value?: BoardItemInput; error?: string } {
   if (!input || typeof input !== "object" || Array.isArray(input)) return { error: "Dữ liệu không hợp lệ" };
   const row = input as Record<string, unknown>;

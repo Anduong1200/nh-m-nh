@@ -6,13 +6,11 @@ import { getMyHouse } from "@/modules/houses/server";
 import { knockFromRow, type Knock } from "@/modules/knocks/model";
 import { DEFAULT_NOTIFICATION_PREFERENCES, notificationPreferencesFromRow, type NotificationPreferences } from "@/modules/notifications/model";
 import { isPresenceVisible, presenceFromRow, type PresenceStatus } from "./model";
-import type { BoardItem } from "@/modules/board/model";
 
 export type Phase2State = { 
   statuses: PresenceStatus[]; 
   knocks: Knock[]; 
   preferences: NotificationPreferences;
-  boardItems?: BoardItem[];
 };
 
 export class Phase2UnavailableError extends Error {
@@ -31,14 +29,13 @@ export async function loadPhase2State(houseId: string): Promise<Phase2State> {
   }
   const memberIds = new Set(house.members.map((member) => member.user_id));
   const supabase = await createSupabaseServerClient();
-  const [presence, inbox, preferencesResult, dismissals, boardResult] = await Promise.all([
+  const [presence, inbox, preferencesResult, dismissals] = await Promise.all([
     supabase.from("presence_entries").select("house_id,user_id,mood,energy,availability,note,need,expires_at,version,cleared").eq("house_id", house.id),
     supabase.from("knocks").select("id,house_id,sender_id,recipient_id,kind,content,created_at").eq("house_id", house.id).eq("recipient_id", user.id).order("created_at", { ascending: false }).limit(24),
     supabase.from("notification_preferences").select("user_id,quiet_enabled,start_minute,end_minute,timezone,preview,knocks_enabled").eq("user_id", user.id).maybeSingle(),
     supabase.from("knock_dismissals").select("knock_id").eq("user_id", user.id),
-    supabase.from("board_objects").select("id, house_id, created_by, type, payload, x, y, rotation, z_index, version, created_at, updated_at, deleted_at").eq("house_id", house.id).is("deleted_at", null).order("z_index", { ascending: true }).order("created_at", { ascending: true }),
   ]);
-  if (presence.error || inbox.error || preferencesResult.error || dismissals.error || boardResult.error) throw new Phase2UnavailableError();
+  if (presence.error || inbox.error || preferencesResult.error || dismissals.error) throw new Phase2UnavailableError();
   const now = new Date();
   const statuses: PresenceStatus[] = [];
   for (const row of presence.data ?? []) {
@@ -62,21 +59,5 @@ export async function loadPhase2State(houseId: string): Promise<Phase2State> {
   const preferences = preferenceRow ? notificationPreferencesFromRow(preferenceRow) : { ...DEFAULT_NOTIFICATION_PREFERENCES };
   if (!preferences) throw new Phase2UnavailableError();
   
-  const boardItems: BoardItem[] = (boardResult.data ?? []).map((item: any) => ({
-    id: item.id,
-    houseId: item.house_id,
-    createdBy: item.created_by,
-    type: item.type as "note" | "link",
-    payload: item.payload,
-    x: Number(item.x),
-    y: Number(item.y),
-    rotation: Number(item.rotation),
-    zIndex: item.z_index,
-    version: item.version,
-    createdAt: item.created_at,
-    updatedAt: item.updated_at,
-    deletedAt: item.deleted_at,
-  }));
-
-  return { statuses, knocks, preferences, boardItems };
+  return { statuses, knocks, preferences };
 }
