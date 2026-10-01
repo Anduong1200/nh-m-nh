@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore, type FormEvent, type MouseEvent, type ReactNode } from "react";
-import { HomeInteractiveRoom } from "@/components/phase4/home-interactive-room";
+import { HomeScene } from "@/components/home-scene";
 import { ThemeControl } from "@/components/theme-control";
 import type { HouseWithMembers } from "@/modules/houses/server";
 import {
@@ -115,20 +115,20 @@ export function HomeRoom({
     notifications.close();
   }, [notifications]);
 
-  function openPresence(event?: MouseEvent<HTMLButtonElement>) {
-    if (event) event.currentTarget.focus();
+  function openPresence(event: MouseEvent<HTMLButtonElement>) {
+    event.currentTarget.focus();
     if (!presenceDraft) setPresenceDraft(newPresenceDraft(ownStatus));
     setFormError(null);
     setConflict(false);
     setOpenDialog("presence");
   }
-  function openKnock(event?: MouseEvent<HTMLButtonElement>) {
-    if (event) event.currentTarget.focus();
+  function openKnock(event: MouseEvent<HTMLButtonElement>) {
+    event.currentTarget.focus();
     setFormError(null);
     setOpenDialog("knock");
   }
-  function openSettings(event?: MouseEvent<HTMLButtonElement>) {
-    if (event) event.currentTarget.focus();
+  function openSettings(event: MouseEvent<HTMLButtonElement>) {
+    event.currentTarget.focus();
     if (state && !preferencesDraft) setPreferencesDraft({ ...state.preferences });
     setFormError(null);
     setOpenDialog("settings");
@@ -298,18 +298,27 @@ export function HomeRoom({
             {loadError && <p className="home-notice home-error" role="alert">{loadError} Nội dung đang viết vẫn được giữ.</p>}
             {feedback && <p className="home-notice" role="status">{feedback}</p>}
 
-            <HomeInteractiveRoom
-              openBoard={() => setOpenDialog("board")}
-              openPresence={() => setOpenDialog("presence")}
-              openSettings={() => setOpenDialog("settings")}
-              openKnock={() => setOpenDialog("knock")}
-              statusesNode={
-                house.members.map((member) => {
+            <div className="home-spatial-layout">
+              <figure className="home-room-stage">
+                <div className="home-room-canvas">
+                  <HomeScene />
+                  <button type="button" className="home-object-button home-object-status" onClick={openPresence}><span aria-hidden="true">☀</span>Trạng thái của mình</button>
+                  <button type="button" className="home-object-button home-object-knock" onClick={openKnock}><span aria-hidden="true">⌁</span>Gõ cửa một chút</button>
+                  <button type="button" className="home-object-button home-object-settings" onClick={openSettings}><span aria-hidden="true">⚙</span>Nhịp thông báo</button>
+                </div>
+                <figcaption>
+                  <div className="home-decor-legend"><span className="home-decor-label">Bản đồ · chưa mở</span><span className="home-decor-label">Hộp trò chơi · chưa mở</span></div>
+                  Bảng vẽ, thư và bản đồ đang là đồ trang trí. Ba nhãn trong phòng mở những góc đã sẵn sàng.
+                </figcaption>
+              </figure>
+              <div className="home-people" aria-label="Trạng thái do mỗi người tự chia sẻ">
+                {house.members.map((member) => {
                   const status = state.statuses.find((item) => item.userId === member.user_id);
                   const self = member.user_id === currentUserId;
                   return (
-                    <section className="home-person min-w-[200px]" key={member.user_id} aria-label={`Trạng thái ${self ? "của bạn" : "người thương"}`}>
+                    <section className="home-person" key={member.user_id} aria-label={`Trạng thái ${self ? "của bạn" : "người thương"}`}>
                       <div className="home-person-header">
+                        <span className="home-mascot" aria-hidden="true">{member.mascot === "rabbit" ? "🐰" : member.mascot === "owl" ? "🦉" : "?"}</span>
                         <div className="home-person-name">
                           {member.profile?.display_name || (self ? "Mình" : "Người thương")}
                           {self && (
@@ -332,35 +341,26 @@ export function HomeRoom({
                         {status.note && <p className="home-presence-note">{status.note}</p>}
                         {status.need && <p className="home-presence-need">Cần một chút: {status.need}</p>}
                         <p className="home-presence-expiry">{expiryText(status)}</p>
-                      </> : <p className="home-presence-empty">Chưa có trạng thái được chia sẻ lúc này.</p>}
+                      </> : <p className="home-presence-empty">Chưa có trạng thái được chia sẻ lúc này. Mỗi người có thể để lại khi muốn.</p>}
+                      {self && <button type="button" className="home-subtle-button" onClick={openPresence}>Viết trạng thái</button>}
                     </section>
                   );
-                })
-              }
-              knocksNode={
-                incomingKnocks.length === 0 ? (
-                  <p className="home-knock-empty">Góc này đang yên. Cú gõ mới sẽ ở đây khi người ấy gửi.</p>
-                ) : (
-                  incomingKnocks.map((knock) => (
-                    <article key={knock.id} className="home-knock-item w-full !max-w-none">
-                      {knock.kind === "sticker" ? (
-                        <>
-                          <span className="home-knock-sticker" aria-hidden="true">{stickerSymbol(knock.content)}</span>
-                          <p>{KNOCK_STICKER_LABELS[knock.content as KnockSticker] ?? "Một nhãn dán nhỏ"}</p>
-                        </>
-                      ) : (
-                        <p>{knock.content}</p>
-                      )}
-                      {dismissKnock && (
-                        <button type="button" className="home-subtle-button mt-2" disabled={busy || !online} onClick={() => void hideKnock(knock.id)}>
-                          Cất khỏi góc mình
-                        </button>
-                      )}
-                    </article>
-                  ))
-                )
-              }
-            />
+                })}
+              </div>
+            </div>
+
+            <section className="home-knock-shelf" aria-labelledby="knock-shelf-title">
+              <div><h2 id="knock-shelf-title">Một cú gõ để lại</h2><p className="home-knock-caption">Chỉ một lời nghĩ tới nhau. Không có dấu đã xem hay yêu cầu trả lời.</p></div>
+              <div className="home-knock-items">
+                {incomingKnocks.length === 0 ? <p className="home-knock-empty">Góc này đang yên. Cú gõ mới sẽ ở đây khi người ấy gửi.</p> : incomingKnocks.map((knock) => (
+                  <article key={knock.id} className="home-knock-item">
+                    {knock.kind === "sticker" ? <><span className="home-knock-sticker" aria-hidden="true">{stickerSymbol(knock.content)}</span><p>{KNOCK_STICKER_LABELS[knock.content as KnockSticker] ?? "Một nhãn dán nhỏ"}</p></> : <p>{knock.content}</p>}
+                    {dismissKnock && <button type="button" className="home-subtle-button" disabled={busy || !online} onClick={() => void hideKnock(knock.id)} aria-label="Cất cú gõ khỏi góc của bạn">Cất khỏi góc mình</button>}
+                  </article>
+                ))}
+              </div>
+            </section>
+            {incomingKnocks.length > 0 && canNotifyKnock(state.preferences) && <p className="home-generic-notice" role="status">{state.preferences.preview === "generic" ? "Có một cú gõ cửa trong Nhà." : formatKnockNotification(incomingKnocks[0]!, state.preferences).body}</p>}
           </div>
         )}
       </main>
