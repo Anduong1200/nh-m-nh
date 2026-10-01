@@ -11,7 +11,10 @@ import { dismissKnockAction, sendKnockAction } from "@/modules/knocks/actions";
 import type { KnockInput } from "@/modules/knocks/model";
 import { saveNotificationPreferencesAction } from "@/modules/notifications/actions";
 import type { NotificationPreferences } from "@/modules/notifications/model";
+import { updateDisplayNameAction } from "@/modules/houses/actions";
 import { HomeRoom } from "@/components/phase2/home-room";
+import { IdentitySetup } from "@/components/phase3/identity-setup";
+import { SyncCoordinator } from "@/components/phase3/sync-coordinator";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ThemeControl } from "@/components/theme-control";
 import "./home.css";
@@ -174,6 +177,16 @@ export function HouseDashboard({
       if (result.success) setState((previous) => previous ? { ...previous, knocks: previous.knocks.filter((knock) => knock.id !== knockId) } : previous);
     });
   }
+  async function updateDisplayName(name: string) {
+    return runMutation(() => updateDisplayNameAction(name), (result) => {
+      if (!result.error) {
+        setCurrentHouse((h) => ({
+          ...h,
+          members: h.members.map(m => m.user_id === currentUserId ? { ...m, profile: { display_name: name, avatar_url: m.profile?.avatar_url ?? null } } : m)
+        }));
+      }
+    });
+  }
 
   async function handleCreateInvite() {
     setCreatingInvite(true);
@@ -197,7 +210,20 @@ export function HouseDashboard({
   if (actorBlocked) {
     return <main id="main-content" className="state-page"><div className="state-paper"><h1>Vào lại Nhà nhé.</h1><p>Phiên đăng nhập hoặc Nhà trên thiết bị đã đổi. Nội dung riêng tư của lần mở trước đã được đóng.</p><Link href="/auth/sign-in" className="primary-button">Đăng nhập lại</Link></div></main>;
   }
-  if (isPaired) return <HomeRoom key={`${house.id}:${currentUserId}`} house={currentHouse} currentUserId={currentUserId} state={state} refresh={refresh} savePresence={savePresence} clearPresence={clearPresence} sendKnock={sendKnock} savePreferences={savePreferences} dismissKnock={dismissKnock} refreshing={refreshing} loadError={loadError} online={online} signOutControl={<SignOutButton userId={currentUserId} />} />;
+
+  const currentUser = currentHouse.members.find(m => m.user_id === currentUserId);
+  if (currentUser && !currentUser.mascot) {
+    return <IdentitySetup defaultName={currentUser.profile?.display_name ?? ""} onSubmit={() => void refresh()} />;
+  }
+
+  if (isPaired) {
+    return (
+      <>
+        <HomeRoom key={`${house.id}:${currentUserId}`} house={currentHouse} currentUserId={currentUserId} state={state} refresh={refresh} savePresence={savePresence} clearPresence={clearPresence} sendKnock={sendKnock} savePreferences={savePreferences} dismissKnock={dismissKnock} updateDisplayName={updateDisplayName} refreshing={refreshing} loadError={loadError} online={online} signOutControl={<SignOutButton userId={currentUserId} />} />
+        <SyncCoordinator accountId={currentUserId} houseId={currentHouse.id} />
+      </>
+    );
+  }
 
   return (
     <div className="house-shell private-home">

@@ -70,7 +70,9 @@ See `PRODUCT_SPEC.md`, `AGENTS.md`, and `docs/`.
 
 The foundation includes Next.js/React/strict TypeScript/Tailwind, a public Home illustration, adaptive light, Supabase helpers, PWA fallback, account-scoped IndexedDB, Vitest, Playwright and CI. Phase 1 supplies Google sign-in and House/pairing flows. Phase 2 adds the private interactive Home, explicit temporary status, note/sticker Knock, and privacy/quiet-hour preferences. Future objects remain clearly decorative.
 
-Read [Phase 2](docs/PHASE2.md) for the preliminary assessment, behavior and verification limits, and [Bootstrap](docs/BOOTSTRAP.md) for the historical foundation report. **Database installation is currently blocked by the original Phase 1 migration's table/policy order pending confirmation of its applied status.** No hosted Supabase flow has been verified; do not treat fixture browser tests as production cross-device delivery.
+Read [Phase 2](docs/PHASE2.md) for the preliminary assessment, behavior and verification limits, and [Bootstrap](docs/BOOTSTRAP.md) for the historical foundation report. The unapplied Phase 1 migration's creation order is repaired and all 191 local tests pass, including actual PostgreSQL RLS. The user reports Google sign-in and House entry after development setup; real two-account pairing and bidirectional Knock delivery remain unverified. Do not treat fixture browser tests as hosted cross-device delivery. [Local Google sign-in setup](docs/LOCAL_AUTH_SETUP.md) explains the remaining steps.
+
+The user later reported a successful two-account trial. [Phase 3 review](docs/PHASE3_REVIEW.md) records the remaining Board/Whiteboard/offline work and requested editable names with stable rabbit/owl identities. [Gemini handoff prompt](GEMINI_PHASE3_PROMPT.md) is ready for the next implementation agent; Phase 3 is not implemented yet.
 
 ## Local development
 
@@ -99,13 +101,13 @@ pnpm exec playwright install chromium webkit
 pnpm lint
 pnpm typecheck
 pnpm test
-pnpm build
+pnpm build:e2e
 pnpm test:e2e
 ```
 
-`pnpm check` runs all five gates in that order. Playwright starts the built app on `127.0.0.1:3100` and the isolated Home UI fixture on `127.0.0.1:3102`; keep both ports available. Projects cover desktop Chromium, iPhone 12 WebKit and Android Chromium. On Linux CI install browser dependencies with `pnpm exec playwright install --with-deps chromium webkit`. Playwright is pinned to 1.60.0 to match the available local Chromium test runtime; its own browser installer and CI use the corresponding revisions.
+`pnpm check` runs all five gates in that order. `build:e2e` makes a production test build with empty Supabase configuration, independently of the ignored `.env.local`; it does not modify that file or the running development preview. Use `pnpm build` for the configured deployment build. Playwright starts the built app on `127.0.0.1:3100` and the isolated Home UI fixture on `127.0.0.1:3103`; keep both ports available. The manual fixture preview defaults to port 3102. Projects cover desktop Chromium, iPhone 12 WebKit and Android Chromium. On Linux CI install browser dependencies with `pnpm exec playwright install --with-deps chromium webkit`. Playwright is pinned to 1.60.0 to match the available local Chromium test runtime; its own browser installer and CI use the corresponding revisions.
 
-Unit/integration tests cover environment validation, verified identity/cookie adapters, offline persistence, domain/action behavior, and actual PostgreSQL RLS through PGlite. The ordered migration suite currently fails at the original Phase 1 creation-order defect. E2E covers the production public shell/private route denial plus isolated HomeRoom interactions; mock/fixture tests do not prove hosted auth or cross-device delivery. See the exact results in `docs/PHASE2.md`.
+Unit/integration tests cover environment validation, verified identity/cookie adapters, offline persistence, domain/action behavior, and actual PostgreSQL RLS through PGlite. The complete ordered migration suite passes after the baseline creation-order repair. E2E covers the production public shell/private route denial plus isolated HomeRoom interactions; mock/fixture tests do not prove hosted auth or cross-device delivery. See the exact results in `docs/PHASE2.md`.
 
 ## Layout and migration conventions
 

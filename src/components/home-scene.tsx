@@ -57,19 +57,20 @@ export function HomeScene() {
       {/* Shelf, field map and owl. */}
       <path d="M500 216h110v12H500Z" className="scene-wood" />
       <path d="M505 224v15m94-15v15" className="scene-outline" />
-      <g transform="rotate(5 544 151)">
+      <g className="scene-map-card" transform="translate(0 -20) rotate(5 544 151)">
         <rect x="500" y="109" width="86" height="77" rx="3" className="scene-paper" />
         <path d="m511 129 20-9 16 15 28-13v49l-26 9-18-14-20 9Z" className="scene-map" />
         <path d="m531 120 0 46m16-31 2 45" className="scene-map-fold" />
         <path d="m514 152 9-8 17 12 12-9 17-5" className="scene-map-path" />
       </g>
-      <g className="scene-owl">
-        <path d="m535 213-3-28 10 6q12-8 25 0l10-6-3 29Z" className="scene-owl-body" />
-        <circle cx="546" cy="200" r="8" className="scene-cream" />
-        <circle cx="565" cy="200" r="8" className="scene-cream" />
-        <circle cx="547" cy="200" r="2" className="scene-eye" />
-        <circle cx="564" cy="200" r="2" className="scene-eye" />
-        <path d="m551 206 5 5 4-5" className="scene-beak" />
+      <g className="scene-owl" data-mascot="owl">
+        <path d="M533 174l10 8q12-7 24 0l10-8-3 28q-2 12-19 12t-19-12Z" className="scene-owl-body" />
+        <circle cx="546" cy="189" r="9" className="scene-cream" />
+        <circle cx="565" cy="189" r="9" className="scene-cream" />
+        <circle cx="547" cy="189" r="2" className="scene-eye" />
+        <circle cx="564" cy="189" r="2" className="scene-eye" />
+        <path d="m551 197 5 5 4-5Z" className="scene-beak" />
+        <path d="m539 199 5 7m25-7-5 7m-18 8v2m17-2v2" className="scene-mascot-detail" />
       </g>
 
       {/* Plant and lamp. */}
@@ -110,15 +111,19 @@ export function HomeScene() {
         <path d="M88 354h102v15H88Z" className="scene-game-lid" />
         <path d="m127 387 8-10 7 10 12-2-5 11-21 1Z" className="scene-game-symbol" />
       </g>
-      <g className="scene-rabbit">
-        <ellipse cx="558" cy="390" rx="27" ry="22" className="scene-cream" />
-        <path d="M547 379q-19-39-11-47 14-4 20 37m-2 2q3-45 15-45 12 7-7 49" className="scene-cream" />
-        <ellipse cx="554" cy="377" rx="22" ry="20" className="scene-cream" />
-        <path d="m539 343 10 24m15-29-6 27" className="scene-rabbit-ear" />
-        <circle cx="546" cy="376" r="2" className="scene-eye" />
-        <circle cx="560" cy="376" r="2" className="scene-eye" />
-        <path d="m551 382 3 2 3-2" className="scene-rabbit-nose" />
-        <path d="M548 406h12m8-7 9 4" className="scene-rabbit-detail" />
+      <g className="scene-rabbit" data-mascot="rabbit">
+        <circle cx="580" cy="395" r="9" className="scene-cream" />
+        <ellipse cx="556" cy="391" rx="24" ry="25" className="scene-cream" />
+        <ellipse cx="544" cy="346" rx="7" ry="25" transform="rotate(-15 544 346)" className="scene-cream" />
+        <ellipse cx="562" cy="344" rx="7" ry="26" transform="rotate(12 562 344)" className="scene-cream" />
+        <path d="m539 334 8 27m19-29-6 29" className="scene-rabbit-ear" />
+        <ellipse cx="553" cy="374" rx="22" ry="20" className="scene-cream" />
+        <circle cx="545" cy="372" r="2" className="scene-eye" />
+        <circle cx="561" cy="372" r="2" className="scene-eye" />
+        <path d="m550 379 3 3 3-3Z" className="scene-rabbit-nose" />
+        <path d="M553 382v3m-5 0q5 4 10 0M547 396v9m14-9v9" className="scene-mascot-detail" />
+        <ellipse cx="543" cy="413" rx="10" ry="4" className="scene-cream" />
+        <ellipse cx="567" cy="413" rx="10" ry="4" className="scene-cream" />
       </g>
 
       <path d="m55 83-12 4m2-25 7 8m596 9 12 4m-4-20-7 8" className="scene-spark" />

@@ -1,8 +1,53 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 
-const fixture = "http://127.0.0.1:3102";
+const fixture = "http://127.0.0.1:3103";
 function room(session: string, actor = 0) { return `${fixture}/?session=${session}&actor=${actor}`; }
+
+test("Vietnamese headings load locally and room labels keep both mascots visible", async ({ page }) => {
+  await page.goto(room(randomUUID()));
+  await expect(page.getByRole("heading", { name: "Về Nhà rồi." })).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
+  const headingFont = await page.locator(".home-introduction h1").evaluate((heading) => {
+    const family = getComputedStyle(heading).fontFamily.split(",")[0];
+    if (!family) throw new Error("Heading has no font family.");
+    const loadedFace = [...document.fonts].some((face) => face.family.replaceAll('"', "") === family.replaceAll('"', "") && face.status === "loaded");
+    const localFontAsset = performance.getEntriesByType("resource").some((asset) => new URL(asset.name).origin === location.origin && /\/_next\/static\/media\/Lora-.*\.ttf$/.test(new URL(asset.name).pathname));
+    return { loadedFace, localFontAsset, loaded: document.fonts.check(`30px ${family}`, "Về Nhà rồi. Trạng thái của mình") };
+  });
+  expect(headingFont.loadedFace).toBe(true);
+  expect(headingFont.localFontAsset).toBe(true);
+  expect(headingFont.loaded).toBe(true);
+
+  for (const width of [1440, 980, 768, 760, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 });
+    for (const theme of ["day", "night"]) {
+      await page.getByLabel("Chọn giao diện ánh sáng").selectOption(theme);
+      const overlaps = await page.evaluate(() => {
+        const mascots = [...document.querySelectorAll("[data-mascot]")];
+        const labels = [...document.querySelectorAll(".home-object-button, .home-decor-label")];
+        return mascots.flatMap((mascot) => labels.flatMap((label) => {
+          const a = mascot.getBoundingClientRect();
+          const b = label.getBoundingClientRect();
+          return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+            ? [`${mascot.getAttribute("data-mascot")}: ${label.textContent}`] : [];
+        }));
+      });
+      expect(overlaps, `${width}px ${theme}`).toEqual([]);
+      const mapClearsOwl = await page.evaluate(() => {
+        const map = document.querySelector(".scene-map-card")?.getBoundingClientRect();
+        const owl = document.querySelector('[data-mascot="owl"]')?.getBoundingClientRect();
+        return Boolean(map && owl && map.bottom < owl.top);
+      });
+      expect(mapClearsOwl, `${width}px map above owl`).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      for (const button of await page.locator(".home-object-button").all()) {
+        const bounds = await button.boundingBox();
+        expect(bounds?.height).toBeGreaterThanOrEqual(44);
+      }
+    }
+  }
+});
 
 test("Home status can be shared, expired manually and discovered on a second device", async ({ page, context }) => {
   const session = randomUUID();

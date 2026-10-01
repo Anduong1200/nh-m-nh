@@ -10,6 +10,8 @@ Phase 2 writes use `set_presence`, `clear_presence`, `send_knock`, `dismiss_knoc
 
 The user confirmed that no Supabase project exists yet. The unapplied original Phase 1 migration received only a creation-order repair: two SELECT policies were moved after their referenced membership table is created. Policy definitions were preserved, and the later additive migration provides the security hardening. The full chain now applies from a fresh database. No remote database, user data, or installed migration history was changed.
 
+For the newly created development project, `../setup-new-project.sql` is a generated, one-time SQL Editor installation artifact, not an additional migration. Regenerate with `node scripts/generate-supabase-setup.mjs`. It preserves each canonical SQL file verbatim, wraps all migrations in one transaction, rejects an existing application schema, and requests PostgREST schema reload. Record the applied timestamps if installing manually; reconcile migration history before later using CLI `db push`. Future schema changes remain versioned migrations; the Dashboard is not a separate source of schema edits.
+
 Name each migration `YYYYMMDDHHMMSS_descriptive_snake_case.sql`, using a UTC timestamp (for example, `20261001090000_create_houses.sql`). Prefer `supabase migration new descriptive_snake_case` when the CLI is installed. Keep applied migrations immutable; introduce a new migration for a later change.
 
 Before exposing a table through the Supabase API:

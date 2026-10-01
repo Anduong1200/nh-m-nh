@@ -5,6 +5,8 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | { [key:
 
 export interface OfflineDraft {
   accountId: string;
+  houseId: string;
+  schemaVersion: number;
   id: string;
   kind: OfflineContentKind;
   payload: JsonValue;
@@ -13,6 +15,8 @@ export interface OfflineDraft {
 }
 
 export interface DraftInput {
+  houseId: string;
+  schemaVersion: number;
   id: string;
   kind: OfflineContentKind;
   payload: JsonValue;
@@ -22,6 +26,8 @@ export interface DraftInput {
 
 export interface QueuedOperation {
   accountId: string;
+  houseId: string;
+  schemaVersion: number;
   operationId: string;
   entityId: string;
   entity: OfflineContentKind;
@@ -40,11 +46,13 @@ export interface QueuedOperation {
 }
 
 export type OperationInput =
-  | { entityId: string; entity: OfflineContentKind; mutation: "append"; payload: JsonValue }
-  | { entityId: string; entity: OfflineContentKind; mutation: "update"; baseVersion: number; payload: JsonValue };
+  | { houseId: string; schemaVersion: number; entityId: string; entity: OfflineContentKind; mutation: "append"; payload: JsonValue }
+  | { houseId: string; schemaVersion: number; entityId: string; entity: OfflineContentKind; mutation: "update"; baseVersion: number; payload: JsonValue };
 
 export interface RecentContent {
   accountId: string;
+  houseId: string;
+  schemaVersion: number;
   id: string;
   kind: OfflineContentKind;
   payload: JsonValue;
@@ -66,13 +74,32 @@ const cleanupInProgress = new Set<string>();
 let connection: Promise<IDBPDatabase<OfflineSchema>> | undefined;
 
 function database() {
-  connection ??= openDB<OfflineSchema>(DB_NAME, 1, {
-    upgrade(db) {
-      for (const name of ["drafts", "operations", "recent"] as const) {
-        const store = db.createObjectStore(name, {
-          keyPath: ["accountId", name === "operations" ? "operationId" : "id"],
-        });
-        store.createIndex("by-account", "accountId");
+  connection ??= openDB<OfflineSchema>(DB_NAME, 2, {
+    async upgrade(db, oldVersion, newVersion, tx) {
+      if (oldVersion < 1) {
+        for (const name of ["drafts", "operations", "recent"] as const) {
+          const store = db.createObjectStore(name, {
+            keyPath: ["accountId", name === "operations" ? "operationId" : "id"],
+          });
+          store.createIndex("by-account", "accountId");
+        }
+      }
+      if (oldVersion === 1) {
+        // Upgrade existing records to include houseId and schemaVersion
+        for (const name of ["drafts", "operations", "recent"] as const) {
+          const store = tx.objectStore(name);
+          let cursor = await store.openCursor();
+          while (cursor) {
+            const record = { ...cursor.value };
+            // Check if missing to be safe
+            if (!("houseId" in record)) {
+              (record as any).houseId = "legacy";
+              (record as any).schemaVersion = 0;
+              await cursor.update(record);
+            }
+            cursor = await cursor.continue();
+          }
+        }
       }
     },
     blocking() {
@@ -150,6 +177,7 @@ export class AccountOfflineStore {
 
   async saveDraft(input: DraftInput): Promise<DraftSaveResult> {
     validateId(input.id, "Draft ID");
+    validateId(input.houseId, "House ID");
     if (input.expectedVersion !== null) validateVersion(input.expectedVersion);
     const db = await this.db();
     const tx = db.transaction("drafts", "readwrite");
@@ -160,6 +188,8 @@ export class AccountOfflineStore {
     }
     const draft: OfflineDraft = {
       accountId: this.accountId,
+      houseId: input.houseId,
+      schemaVersion: input.schemaVersion,
       id: input.id,
       kind: input.kind,
       payload: input.payload,
@@ -173,9 +203,12 @@ export class AccountOfflineStore {
 
   async enqueue(input: OperationInput): Promise<QueuedOperation> {
     validateId(input.entityId, "Entity ID");
+    validateId(input.houseId, "House ID");
     if (input.mutation === "update") validateVersion(input.baseVersion);
     const operation: QueuedOperation = {
       accountId: this.accountId,
+      houseId: input.houseId,
+      schemaVersion: input.schemaVersion,
       operationId: crypto.randomUUID(),
       entityId: input.entityId,
       entity: input.entity,
@@ -235,6 +268,7 @@ export class AccountOfflineStore {
 
   async cacheRecent(input: Omit<RecentContent, "accountId" | "cachedAt">) {
     validateId(input.id, "Content ID");
+    validateId(input.houseId, "House ID");
     validateVersion(input.serverVersion);
     const db = await this.db();
     const tx = db.transaction("recent", "readwrite");

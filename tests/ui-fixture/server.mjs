@@ -10,7 +10,12 @@ async function styles(directory) {
   const files = await Promise.all(entries.map(async (entry) => entry.isDirectory() ? styles(join(directory, entry.name)) : entry.name.endsWith(".css") ? readFile(join(directory, entry.name), "utf8") : ""));
   return files.join("\n");
 }
-const css = await styles(".next/static");
+const css = (await styles(".next/static")).replace(/url\((["']?)\.\.\/media\//g, "url($1/_next/static/media/");
+// Use the production font variable class and its same-origin build assets.
+const fontClass = css.match(/\.([\w-]+)\s*\{\s*--font-display\s*:/)?.[1];
+if (!fontClass) throw new Error("Build the app before starting the UI fixture (display font missing).");
+const port = Number(process.env.NHA_MINH_UI_FIXTURE_PORT ?? 3102);
+if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("Invalid UI fixture port.");
 const actors = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"];
 const defaults = { quietEnabled: false, startMinute: 1320, endMinute: 420, timeZone: "Asia/Ho_Chi_Minh", preview: "generic", knocksEnabled: true };
 const sessions = new Map();
@@ -24,12 +29,20 @@ function json(response, value, status = 200) {
 }
 
 const server = createServer(async (request, response) => {
-  const url = new URL(request.url ?? "/", "http://127.0.0.1:3102");
+  const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
+  if (/^\/_next\/static\/media\/[\w.-]+\.(woff2?|ttf|otf)$/.test(url.pathname)) {
+    try {
+      const font = await readFile(join(".next/static/media", url.pathname.split("/").at(-1)));
+      response.writeHead(200, { "Content-Type": "font/ttf" });
+      response.end(font);
+    } catch { response.writeHead(404); response.end(); }
+    return;
+  }
   if (url.pathname === "/bundle.js") { response.writeHead(200, { "Content-Type": "text/javascript" }); response.end(bundle.outputFiles[0].text); return; }
   if (url.pathname === "/styles.css") { response.writeHead(200, { "Content-Type": "text/css" }); response.end(css); return; }
   if (!url.pathname.startsWith("/api/")) {
     response.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-store" });
-    response.end('<!doctype html><html lang="vi" data-theme="day"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nhà Mình · Kiểm thử giao diện</title><link rel="stylesheet" href="/styles.css"></head><body><div id="root"></div><script type="module" src="/bundle.js"></script></body></html>');
+    response.end(`<!doctype html><html lang="vi" class="${fontClass}" data-theme="day"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nhà Mình · Kiểm thử giao diện</title><link rel="stylesheet" href="/styles.css"></head><body><div id="root"></div><script type="module" src="/bundle.js"></script></body></html>`);
     return;
   }
   const actor = actors[Number(url.searchParams.get("actor") ?? 0)];
@@ -69,4 +82,4 @@ const server = createServer(async (request, response) => {
     json(response, { error: "Unknown fixture action" }, 404);
   } catch { json(response, { error: "Invalid fixture request" }, 400); }
 });
-server.listen(3102, "127.0.0.1");
+server.listen(port, "127.0.0.1");

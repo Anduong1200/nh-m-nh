@@ -142,3 +142,62 @@ export async function signOutAction(): Promise<void> {
   revalidatePath("/", "layout");
   redirect("/");
 }
+
+/**
+ * Update user's display name.
+ */
+export async function updateDisplayNameAction(
+  displayName: string,
+): Promise<{ error?: string }> {
+  const user = await requireVerifiedUser();
+  
+  if (!displayName || typeof displayName !== "string") {
+    return { error: "Tên không hợp lệ." };
+  }
+  
+  const trimmed = displayName.trim();
+  if (trimmed.length === 0 || trimmed.length > 50) {
+    return { error: "Tên phải từ 1 đến 50 ký tự." };
+  }
+
+  const supabase = await createSupabaseServerClient("read-write");
+  const { error } = await supabase
+    .from("profiles")
+    .update({ display_name: trimmed })
+    .eq("id", user.id);
+
+  if (error) {
+    return { error: "Không thể cập nhật tên. Vui lòng thử lại." };
+  }
+
+  revalidatePath("/house");
+  return {};
+}
+
+/**
+ * Assign mascot to the user.
+ */
+export async function assignMascotAction(
+  mascot: "rabbit" | "owl",
+): Promise<{ error?: string }> {
+  await requireVerifiedUser();
+  const supabase = await createSupabaseServerClient("read-write");
+
+  const { error } = await supabase.rpc("assign_mascot", {
+    p_mascot: mascot,
+  });
+
+  if (error) {
+    const msg = error.message ?? "";
+    if (msg.includes("Mascot already taken by partner")) {
+      return { error: "Người thương của bạn đã chọn linh vật này rồi." };
+    }
+    if (msg.includes("Mascot already assigned")) {
+      return { error: "Bạn đã chọn linh vật rồi." };
+    }
+    return { error: "Không thể nhận linh vật. Vui lòng thử lại." };
+  }
+
+  revalidatePath("/house");
+  return {};
+}

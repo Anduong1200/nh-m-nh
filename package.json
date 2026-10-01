@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:e2e": "node scripts/build-e2e.mjs",
     "start": "next start",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "next typegen && tsc --noEmit",
@@ -18,7 +19,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm test:e2e"
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build:e2e && pnpm test:e2e"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",

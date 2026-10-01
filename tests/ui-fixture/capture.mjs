@@ -9,8 +9,9 @@ for (const [name, engine, options] of [
   const browser = await engine.launch();
   try {
     const page = await browser.newPage(options);
-    await page.goto(`http://127.0.0.1:3102/?session=visual-${name}-${Date.now()}`);
+    await page.goto(`http://127.0.0.1:${process.env.NHA_MINH_UI_FIXTURE_PORT ?? 3102}/?session=visual-${name}-${Date.now()}`);
     await page.getByRole("heading", { name: "Về Nhà rồi." }).waitFor();
+    await page.evaluate(() => document.fonts.ready);
     await page.getByLabel("Chọn giao diện ánh sáng").selectOption("day");
     await page.screenshot({ path: `test-results/phase2-review/${name}-day.png`, fullPage: true });
     await page.getByLabel("Chọn giao diện ánh sáng").selectOption("night");

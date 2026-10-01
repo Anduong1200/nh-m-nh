@@ -25,11 +25,11 @@ describe("account-scoped offline foundation", () => {
   it("keeps matching draft, recent-content and operation IDs isolated across accounts", async () => {
     const a = newAccount();
     const b = newAccount();
-    await a.store.saveDraft({ id: "same-id", kind: "note", payload: "private A", expectedVersion: null });
-    await b.store.saveDraft({ id: "same-id", kind: "note", payload: "private B", expectedVersion: null });
-    await a.store.cacheRecent({ id: "same-id", kind: "note", payload: "recent A", serverVersion: 1 });
-    await b.store.cacheRecent({ id: "same-id", kind: "note", payload: "recent B", serverVersion: 1 });
-    const operation = await a.store.enqueue({ entityId: "same-id", entity: "note", mutation: "append", payload: "queued A" });
+    await a.store.saveDraft({ houseId: "house1", schemaVersion: 1, id: "same-id", kind: "note", payload: "private A", expectedVersion: null });
+    await b.store.saveDraft({ houseId: "house1", schemaVersion: 1, id: "same-id", kind: "note", payload: "private B", expectedVersion: null });
+    await a.store.cacheRecent({ houseId: "house1", schemaVersion: 1, id: "same-id", kind: "note", payload: "recent A", serverVersion: 1 });
+    await b.store.cacheRecent({ houseId: "house1", schemaVersion: 1, id: "same-id", kind: "note", payload: "recent B", serverVersion: 1 });
+    const operation = await a.store.enqueue({ houseId: "house1", schemaVersion: 1, entityId: "same-id", entity: "note", mutation: "append", payload: "queued A" });
 
     expect((await a.store.getDraft("same-id"))?.payload).toBe("private A");
     expect((await b.store.getDraft("same-id"))?.payload).toBe("private B");
@@ -41,8 +41,8 @@ describe("account-scoped offline foundation", () => {
 
   it("persists unsent draft and stable operation IDs across handle reopen", async () => {
     const { id, store } = newAccount();
-    await store.saveDraft({ id: "doodle", kind: "doodle", payload: { strokes: [[1, 2], [3, 4]] }, expectedVersion: null });
-    const queued = await store.enqueue({ entityId: "doodle", entity: "doodle", mutation: "append", payload: { strokes: [[1, 2]] } });
+    await store.saveDraft({ houseId: "house1", schemaVersion: 1, id: "doodle", kind: "doodle", payload: { strokes: [[1, 2], [3, 4]] }, expectedVersion: null });
+    const queued = await store.enqueue({ houseId: "house1", schemaVersion: 1, entityId: "doodle", entity: "doodle", mutation: "append", payload: { strokes: [[1, 2]] } });
     store.close();
     const reopened = new AccountOfflineStore(id);
 
@@ -53,9 +53,9 @@ describe("account-scoped offline foundation", () => {
 
   it("returns both versions for a stale draft save without overwriting the current draft", async () => {
     const { store } = newAccount();
-    await store.saveDraft({ id: "note", kind: "note", payload: "original", expectedVersion: null });
-    await store.saveDraft({ id: "note", kind: "note", payload: "saved in another tab", expectedVersion: 1 });
-    const conflict = await store.saveDraft({ id: "note", kind: "note", payload: "unsaved local version", expectedVersion: 1 });
+    await store.saveDraft({ houseId: "house1", schemaVersion: 1, id: "note", kind: "note", payload: "original", expectedVersion: null });
+    await store.saveDraft({ houseId: "house1", schemaVersion: 1, id: "note", kind: "note", payload: "saved in another tab", expectedVersion: 1 });
+    const conflict = await store.saveDraft({ houseId: "house1", schemaVersion: 1, id: "note", kind: "note", payload: "unsaved local version", expectedVersion: 1 });
 
     expect(conflict.status).toBe("conflict");
     if (conflict.status === "conflict") {
@@ -68,15 +68,15 @@ describe("account-scoped offline foundation", () => {
   it("uses add semantics so a repeated operation ID cannot replace queued work", async () => {
     const { store } = newAccount();
     vi.spyOn(crypto, "randomUUID").mockReturnValue("00000000-0000-4000-8000-000000000001");
-    await store.enqueue({ entityId: "first", entity: "note", mutation: "append", payload: "first version" });
-    await expect(store.enqueue({ entityId: "second", entity: "note", mutation: "append", payload: "replacement" })).rejects.toThrow();
+    await store.enqueue({ houseId: "house1", schemaVersion: 1, entityId: "first", entity: "note", mutation: "append", payload: "first version" });
+    await expect(store.enqueue({ houseId: "house1", schemaVersion: 1, entityId: "second", entity: "note", mutation: "append", payload: "replacement" })).rejects.toThrow();
 
     expect((await store.listOperations()).map((item) => item.payload)).toEqual(["first version"]);
   });
 
   it("preserves both server-conflict versions after reopen and prevents acknowledgement from discarding them", async () => {
     const { id, store } = newAccount();
-    const operation = await store.enqueue({ entityId: "note", entity: "note", mutation: "update", baseVersion: 1, payload: "my change" });
+    const operation = await store.enqueue({ houseId: "house1", schemaVersion: 1, entityId: "note", entity: "note", mutation: "update", baseVersion: 1, payload: "my change" });
     await store.preserveConflict(operation.operationId, "partner's change", 2);
     await store.preserveConflict(operation.operationId, "later version", 3);
     await expect(store.acknowledgeOperation(operation.operationId)).rejects.toThrow("Resolve");
@@ -95,14 +95,14 @@ describe("account-scoped offline foundation", () => {
     const a = newAccount();
     const sameAccountHandle = new AccountOfflineStore(a.id);
     const b = newAccount();
-    await a.store.saveDraft({ id: "draft", kind: "note", payload: "private A", expectedVersion: null });
-    await a.store.enqueue({ entityId: "draft", entity: "note", mutation: "append", payload: "private A" });
-    await a.store.cacheRecent({ id: "draft", kind: "note", payload: "private A", serverVersion: 1 });
-    await b.store.saveDraft({ id: "draft", kind: "note", payload: "private B", expectedVersion: null });
+    await a.store.saveDraft({ houseId: "house1", schemaVersion: 1, id: "draft", kind: "note", payload: "private A", expectedVersion: null });
+    await a.store.enqueue({ houseId: "house1", schemaVersion: 1, entityId: "draft", entity: "note", mutation: "append", payload: "private A" });
+    await a.store.cacheRecent({ houseId: "house1", schemaVersion: 1, id: "draft", kind: "note", payload: "private A", serverVersion: 1 });
+    await b.store.saveDraft({ houseId: "house1", schemaVersion: 1, id: "draft", kind: "note", payload: "private B", expectedVersion: null });
     await clearAccountOfflineData(a.id);
 
     await expect(a.store.listDrafts()).rejects.toThrow("cleared");
-    await expect(sameAccountHandle.saveDraft({ id: "late-write", kind: "note", payload: "old tab", expectedVersion: null })).rejects.toThrow("cleared");
+    await expect(sameAccountHandle.saveDraft({ houseId: "house1", schemaVersion: 1, id: "late-write", kind: "note", payload: "old tab", expectedVersion: null })).rejects.toThrow("cleared");
     const reopened = new AccountOfflineStore(a.id);
     expect(await reopened.listDrafts()).toEqual([]);
     expect(await reopened.listOperations()).toEqual([]);
@@ -112,10 +112,10 @@ describe("account-scoped offline foundation", () => {
 
   it("bounds recent cache size and age without expiring unsent work", async () => {
     const { store } = newAccount();
-    await store.saveDraft({ id: "unsent", kind: "note", payload: "keep my draft", expectedVersion: null });
-    await store.enqueue({ entityId: "unsent", entity: "note", mutation: "append", payload: "keep my action" });
+    await store.saveDraft({ houseId: "house1", schemaVersion: 1, id: "unsent", kind: "note", payload: "keep my draft", expectedVersion: null });
+    await store.enqueue({ houseId: "house1", schemaVersion: 1, entityId: "unsent", entity: "note", mutation: "append", payload: "keep my action" });
     for (let index = 0; index < RECENT_CONTENT_MAX_ITEMS + 3; index++) {
-      await store.cacheRecent({ id: `recent-${index}`, kind: "note", payload: index, serverVersion: 1 });
+      await store.cacheRecent({ houseId: "house1", schemaVersion: 1, id: `recent-${index}`, kind: "note", payload: index, serverVersion: 1 });
     }
     expect(await store.listRecent()).toHaveLength(RECENT_CONTENT_MAX_ITEMS);
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + RECENT_CONTENT_MAX_AGE_MS + 1_000);

@@ -20,6 +20,7 @@ import {
   type NotificationPreferences,
 } from "@/modules/notifications/model";
 import { HomeDialog } from "./home-dialog";
+import { Board } from "@/components/phase3/board";
 
 export type HomeRoomProps = {
   house: HouseWithMembers;
@@ -31,6 +32,7 @@ export type HomeRoomProps = {
   sendKnock: (input: KnockInput) => Promise<{ knock?: Knock; error?: string }>;
   savePreferences: (input: NotificationPreferences) => Promise<{ preferences?: NotificationPreferences; error?: string }>;
   dismissKnock?: (knockId: string) => Promise<{ success?: boolean; error?: string }>;
+  updateDisplayName: (name: string) => Promise<{ error?: string }>;
   refreshing?: boolean;
   loadError?: string | null;
   online?: boolean;
@@ -90,11 +92,12 @@ function expiryText(status: PresenceStatus) {
 /** No data fetching or server actions: callbacks are supplied by the authorized controller. */
 export function HomeRoom({
   house, currentUserId, state, refresh, savePresence, clearPresence, sendKnock,
-  savePreferences, dismissKnock, refreshing = false, loadError = null,
+  savePreferences, dismissKnock, updateDisplayName, refreshing = false, loadError = null,
   online = true, signOutControl,
 }: HomeRoomProps) {
-  const [openDialog, setOpenDialog] = useState<"presence" | "knock" | "settings" | null>(null);
+  const [openDialog, setOpenDialog] = useState<"presence" | "knock" | "settings" | "edit-name" | "board" | null>(null);
   const [presenceDraft, setPresenceDraft] = useState<PresenceInput | null>(null);
+  const [editNameDraft, setEditNameDraft] = useState("");
   const [preferencesDraft, setPreferencesDraft] = useState<NotificationPreferences | null>(null);
   const [knockKind, setKnockKind] = useState<"note" | "sticker">("note");
   const [knockNote, setKnockNote] = useState("");
@@ -160,6 +163,16 @@ export function HomeRoom({
     if (state && !preferencesDraft) setPreferencesDraft({ ...state.preferences });
     setFormError(null);
     setOpenDialog("settings");
+  }
+  function openEditName(event: MouseEvent<HTMLButtonElement>) {
+    event.currentTarget.focus();
+    setFormError(null);
+    setEditNameDraft(house.members.find(m => m.user_id === currentUserId)?.profile?.display_name ?? "");
+    setOpenDialog("edit-name");
+  }
+  function openBoard(event: MouseEvent<HTMLButtonElement>) {
+    event.currentTarget.focus();
+    setOpenDialog("board");
   }
   function closeDialog() { setOpenDialog(null); }
 
@@ -259,6 +272,27 @@ export function HomeRoom({
     } catch { setFormError("Trình duyệt này chưa bật được thông báo. Bạn vẫn có thể thấy cú gõ trong Nhà."); }
   }
 
+  async function submitEditName(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy || !online) return;
+    if (!editNameDraft.trim()) {
+      setFormError("Vui lòng nhập tên.");
+      return;
+    }
+    setBusy(true);
+    setFormError(null);
+    try {
+      const result = await updateDisplayName(editNameDraft);
+      if (result.error) {
+        setFormError(result.error);
+      } else {
+        setOpenDialog(null);
+        setFeedback("Đã cập nhật tên/biệt danh của bạn.");
+      }
+    } catch { setFormError("Chưa lưu được tên. Thử lại nhé."); }
+    finally { setBusy(false); }
+  }
+
   async function hideKnock(id: string) {
     if (!dismissKnock || busy || !online) return;
     setBusy(true);
@@ -302,13 +336,16 @@ export function HomeRoom({
 
             <div className="home-spatial-layout">
               <figure className="home-room-stage">
-                <HomeScene />
-                <button type="button" className="home-object-button home-object-status" onClick={openPresence}><span aria-hidden="true">☀</span>Trạng thái của mình</button>
-                <button type="button" className="home-object-button home-object-knock" onClick={openKnock}><span aria-hidden="true">⌁</span>Gõ cửa một chút</button>
-                <button type="button" className="home-object-button home-object-settings" onClick={openSettings}><span aria-hidden="true">⚙</span>Nhịp thông báo</button>
-                <span className="home-decor-label home-decor-map">Bản đồ · chưa mở</span>
-                <span className="home-decor-label home-decor-games">Hộp trò chơi · chưa mở</span>
-                <figcaption>Bảng vẽ, thư và bản đồ đang là đồ trang trí. Ba nhãn trong phòng mở những góc đã sẵn sàng.</figcaption>
+                <div className="home-room-canvas">
+                  <HomeScene />
+                  <button type="button" className="home-object-button home-object-status" onClick={openPresence}><span aria-hidden="true">☀</span>Trạng thái của mình</button>
+                  <button type="button" className="home-object-button home-object-knock" onClick={openKnock}><span aria-hidden="true">⌁</span>Gõ cửa một chút</button>
+                  <button type="button" className="home-object-button home-object-settings" onClick={openSettings}><span aria-hidden="true">⚙</span>Nhịp thông báo</button>
+                </div>
+                <figcaption>
+                  <div className="home-decor-legend"><span className="home-decor-label">Bản đồ · chưa mở</span><span className="home-decor-label">Hộp trò chơi · chưa mở</span></div>
+                  Bảng vẽ, thư và bản đồ đang là đồ trang trí. Ba nhãn trong phòng mở những góc đã sẵn sàng.
+                </figcaption>
               </figure>
               <div className="home-people" aria-label="Trạng thái do mỗi người tự chia sẻ">
                 {house.members.map((member) => {
@@ -316,7 +353,28 @@ export function HomeRoom({
                   const self = member.user_id === currentUserId;
                   return (
                     <section className="home-person" key={member.user_id} aria-label={`Trạng thái ${self ? "của bạn" : "người thương"}`}>
-                      <div className="home-person-header"><span className="home-mascot" aria-hidden="true">{self ? "🐰" : "🦉"}</span><div className="home-person-name">{member.profile?.display_name || (self ? "Mình" : "Người thương")}<span className="home-person-self">{self ? "Trạng thái của bạn" : "Người ấy tự chia sẻ"}</span></div></div>
+                      <div className="home-person-header">
+                        <span className="home-mascot" aria-hidden="true">{member.mascot === "rabbit" ? "🐰" : member.mascot === "owl" ? "🦉" : "?"}</span>
+                        <div className="home-person-name">
+                          {member.profile?.display_name || (self ? "Mình" : "Người thương")}
+                          {self && (
+                            <button
+                              type="button"
+                              className="home-icon-button"
+                              onClick={() => {
+                                setEditNameDraft(member.profile?.display_name || "");
+                                setFormError(null);
+                                setOpenDialog("edit-name");
+                              }}
+                              aria-label="Sửa tên / biệt danh"
+                              style={{ marginLeft: "6px", fontSize: "12px", border: "none", background: "none", color: "var(--muted)", cursor: "pointer" }}
+                            >
+                              ✎
+                            </button>
+                          )}
+                          <span className="home-person-self">{self ? "Trạng thái của bạn" : "Người ấy tự chia sẻ"}</span>
+                        </div>
+                      </div>
                       {isPresenceVisible(status, new Date(now)) ? <>
                         <p className="home-presence-mood">{MOOD_LABELS[status.mood]}</p>
                         <p className="home-presence-details"><span>{ENERGY_LABELS[status.energy]}</span><span>{AVAILABILITY_LABELS[status.availability]}</span></p>
@@ -398,6 +456,25 @@ export function HomeRoom({
           <div className="home-form-actions"><button type="submit" className="home-submit" disabled={busy || !online}>{busy ? "Đang lưu…" : "Lưu nhịp thông báo"}</button></div>
         </form>}
       </HomeDialog>
+
+      <HomeDialog open={openDialog === "edit-name"} title="Sửa tên / biệt danh" onClose={closeDialog}>
+        <p className="home-dialog-intro">Cập nhật tên để người ấy dễ dàng nhận ra bạn.</p>
+        <form className="home-form" onSubmit={submitEditName}>
+          <label>Tên / Biệt danh của bạn<input disabled={busy} value={editNameDraft} maxLength={50} placeholder="Ví dụ: Cục cưng" onChange={(event) => setEditNameDraft(event.target.value)} /><span className="home-form-hint">Tối đa 50 ký tự.</span></label>
+          {!online && <p className="home-inline-error" role="status">Cần có mạng để lưu tên.</p>}
+          {formError && <p className="home-inline-error" role="alert">{formError}</p>}
+          <div className="home-form-actions"><button type="submit" className="home-submit" disabled={busy || !online || !editNameDraft.trim()}>{busy ? "Đang lưu…" : "Lưu thay đổi"}</button></div>
+        </form>
+      </HomeDialog>
+
+      {openDialog === "board" && state && (
+        <Board
+          houseId={house.id}
+          accountId={currentUserId}
+          initialItems={state.boardItems ?? []}
+          onClose={closeDialog}
+        />
+      )}
     </div>
   );
 }

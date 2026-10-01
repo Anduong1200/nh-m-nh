@@ -22,9 +22,11 @@ export default defineConfig({
     url: "http://127.0.0.1:3100",
     reuseExistingServer: false,
     timeout: 60_000,
+    env: { NEXT_PUBLIC_SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "" },
   }, {
     command: "node tests/ui-fixture/server.mjs",
-    url: "http://127.0.0.1:3102",
+    url: "http://127.0.0.1:3103",
+    env: { NHA_MINH_UI_FIXTURE_PORT: "3103" },
     reuseExistingServer: false,
     timeout: 30_000,
   }],

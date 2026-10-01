@@ -16,6 +16,7 @@ export type HouseMember = {
   role: string;
   status: string;
   joined_at: string;
+  mascot: "rabbit" | "owl" | null;
   profile: {
     display_name: string;
     avatar_url: string | null;
@@ -61,7 +62,7 @@ export async function getMyHouse(): Promise<HouseWithMembers | null> {
   // Fetch all members with their profiles.
   const { data: members, error: membersError } = await supabase
     .from("house_members")
-    .select("user_id, role, status, joined_at")
+    .select("user_id, role, status, joined_at, mascot")
     .eq("house_id", house.id)
     .eq("status", "active");
 
@@ -84,6 +85,7 @@ export async function getMyHouse(): Promise<HouseWithMembers | null> {
       role: m.role,
       status: m.status,
       joined_at: m.joined_at,
+      mascot: m.mascot,
       profile: profiles?.find((profile) => profile.id === m.user_id) ?? null,
     })),
   };

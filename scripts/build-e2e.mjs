@@ -1,0 +1,10 @@
+import { spawn } from "node:child_process";
+
+// Keep browser fixtures independent of a developer's real Supabase project.
+// Empty values override .env.local without changing that file or the dev server.
+const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "build"], {
+  stdio: "inherit",
+  env: { ...process.env, NEXT_PUBLIC_SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "" },
+});
+child.on("error", (error) => { console.error(error); process.exitCode = 1; });
+child.on("exit", (code) => { process.exitCode = code ?? 1; });

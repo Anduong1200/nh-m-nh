@@ -11,7 +11,7 @@ const ids = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-22
 const params = new URLSearchParams(location.search);
 const actor = params.get("actor") === "1" ? 1 : 0;
 const suffix = `?session=${encodeURIComponent(params.get("session") ?? "default")}&actor=${actor}`;
-const house = { id: "33333333-3333-4333-8333-333333333333", name: "Nhà của Lan và Minh", state: "active", created_at: "2026-10-01T00:00:00Z", members: ids.map((id, i) => ({ user_id: id, role: i === 0 ? "owner" : "partner", status: "active", joined_at: "2026-10-01T00:00:00Z", profile: { display_name: i === 0 ? "Lan" : "Minh", avatar_url: null } })) };
+const house = { id: "33333333-3333-4333-8333-333333333333", name: "Nhà của Lan và Minh", state: "active", created_at: "2026-10-01T00:00:00Z", members: ids.map((id, i) => ({ user_id: id, role: i === 0 ? "owner" : "partner", status: "active", joined_at: "2026-10-01T00:00:00Z", mascot: (i === 0 ? "rabbit" : "owl") as "rabbit" | "owl", profile: { display_name: i === 0 ? "Lan" : "Minh", avatar_url: null } })) };
 
 function Fixture() {
   const [state, setState] = useState<Phase2State | null>(null);
@@ -39,6 +39,7 @@ function Fixture() {
     sendKnock={(input: KnockInput) => mutate<{ knock?: Knock; error?: string }>("knock", input)}
     savePreferences={(input: NotificationPreferences) => mutate<{ preferences?: NotificationPreferences; error?: string }>("preferences", input)}
     dismissKnock={(knockId) => mutate<{ success?: boolean; error?: string }>("dismiss", { knockId })}
+    updateDisplayName={async (name) => { const m = house.members[actor]; if (m?.profile) m.profile.display_name = name; return {}; }}
   /></>;
 }
 createRoot(document.getElementById("root")!).render(<Fixture />);

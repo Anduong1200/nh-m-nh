@@ -1,7 +1,15 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import localFont from "next/font/local";
 import { AppRuntime } from "@/components/app-runtime";
 import "./globals.css";
+
+const displayFont = localFont({
+  src: "./fonts/Lora.ttf",
+  variable: "--font-display",
+  weight: "400 700",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Nhà Mình — Ngôi nhà nhỏ của hai đứa",
@@ -33,7 +41,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="vi">
+    <html lang="vi" className={displayFont.variable}>
       <body>
         <a className="skip-link" href="#main-content" tabIndex={0}>
           Đến nội dung chính

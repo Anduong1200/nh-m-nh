@@ -28,7 +28,7 @@ describe("House server reads", () => {
     expect(result?.members.map((row) => row.profile?.display_name)).toEqual(["Lan", "Minh"]);
     expect(membership.eq).toHaveBeenCalledWith("user_id", "actor");
     expect(profiles.in).toHaveBeenCalledWith("id", ["actor", "partner"]);
-    expect(members.select).toHaveBeenCalledWith("user_id, role, status, joined_at");
+    expect(members.select).toHaveBeenCalledWith("user_id, role, status, joined_at, mascot");
   });
   it("returns no House only for a successful empty membership lookup", async () => {
     mocks.from.mockReturnValue(query(null));
