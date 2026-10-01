@@ -4,6 +4,18 @@ import { expect, test } from "@playwright/test";
 const fixture = "http://127.0.0.1:3103";
 function room(session: string, actor = 0) { return `${fixture}/?session=${session}&actor=${actor}`; }
 
+test("Home keeps Presence and Knock accessible while identity awaits its migration", async ({ page }) => {
+  await page.goto(`${room(randomUUID())}&identity=unavailable`);
+  await expect(page.getByRole("heading", { name: "Về Nhà rồi." })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Phần chọn Thỏ/Cú đang chờ cập nhật" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sửa tên / biệt danh" })).toBeVisible();
+  await page.getByRole("button", { name: "Trạng thái của mình", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Gõ cửa một chút", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+});
+
 test("Vietnamese headings load locally and room labels keep both mascots visible", async ({ page }) => {
   await page.goto(room(randomUUID()));
   await expect(page.getByRole("heading", { name: "Về Nhà rồi." })).toBeVisible();

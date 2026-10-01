@@ -52,6 +52,8 @@ Each V1 House:
 
 Prefer enforcing this at the database/transaction layer, not only application code.
 
+House entry requires verified identity, an active House and authorized membership. Additive mascot identity must not prevent a Phase 2 project from opening its House: only the known missing `house_members.mascot` column permits an RLS-protected baseline member read, with the same actor/capacity checks and an explicit `identityReady=false`. Other database/auth errors remain closed and render a generic retry state. Identity setup activates once the column is available; optional Board failure does not disable Presence/Knock, and its offline sync coordinator stays paused until authorized Board state has loaded. See `LOCAL_AUTH_SETUP.md` for the separate, transactional identity upgrade.
+
 ## Offline model
 
 Client:

@@ -212,15 +212,15 @@ export function HouseDashboard({
   }
 
   const currentUser = currentHouse.members.find(m => m.user_id === currentUserId);
-  if (currentUser && !currentUser.mascot) {
-    return <IdentitySetup defaultName={currentUser.profile?.display_name ?? ""} onSubmit={() => void refresh()} />;
+  if (currentHouse.identityReady && currentUser && !currentUser.mascot) {
+    return <IdentitySetup defaultName={currentUser.profile?.display_name ?? ""} onSubmit={() => window.location.reload()} />;
   }
 
   if (isPaired) {
     return (
       <>
         <HomeRoom key={`${house.id}:${currentUserId}`} house={currentHouse} currentUserId={currentUserId} state={state} refresh={refresh} savePresence={savePresence} clearPresence={clearPresence} sendKnock={sendKnock} savePreferences={savePreferences} dismissKnock={dismissKnock} updateDisplayName={updateDisplayName} refreshing={refreshing} loadError={loadError} online={online} signOutControl={<SignOutButton userId={currentUserId} />} />
-        <SyncCoordinator accountId={currentUserId} houseId={currentHouse.id} />
+        {state?.boardItems && !state.boardError && <SyncCoordinator accountId={currentUserId} houseId={currentHouse.id} />}
       </>
     );
   }

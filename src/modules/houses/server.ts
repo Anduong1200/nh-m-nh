@@ -8,6 +8,7 @@ export type HouseWithMembers = {
   name: string;
   state: string;
   created_at: string;
+  identityReady: boolean;
   members: HouseMember[];
 };
 
@@ -28,6 +29,13 @@ export class HouseLoadError extends Error {
     super("Chưa thể mở Nhà. Bạn có thể thử lại.");
     this.name = "HouseLoadError";
   }
+}
+
+function isMissingMascotColumn(error: { code: string; message: string } | null): boolean {
+  return error !== null && (
+    (error.code === "42703" && /^column (?:house_members\.mascot|"house_members"\."mascot") does not exist$/.test(error.message)) ||
+    (error.code === "PGRST204" && error.message.includes("'mascot' column of 'house_members'"))
+  );
 }
 
 /**
@@ -59,12 +67,24 @@ export async function getMyHouse(): Promise<HouseWithMembers | null> {
 
   if (houseError || !house) throw new HouseLoadError();
 
-  // Fetch all members with their profiles.
-  const { data: members, error: membersError } = await supabase
+  // Identity is additive: a project on the Phase 2 schema must still open its
+  // authorized House. Retry only the known missing column, never an RLS error.
+  let { data: members, error: membersError } = await supabase
     .from("house_members")
     .select("user_id, role, status, joined_at, mascot")
     .eq("house_id", house.id)
     .eq("status", "active");
+
+  const identityReady = !isMissingMascotColumn(membersError);
+  if (!identityReady) {
+    const baseline = await supabase
+      .from("house_members")
+      .select("user_id, role, status, joined_at")
+      .eq("house_id", house.id)
+      .eq("status", "active");
+    members = baseline.data?.map((member) => ({ ...member, mascot: null })) ?? null;
+    membersError = baseline.error;
+  }
 
   if (membersError || !members || members.length > 2 || !members.some((member) => member.user_id === user.id)) {
     throw new HouseLoadError();
@@ -80,12 +100,13 @@ export async function getMyHouse(): Promise<HouseWithMembers | null> {
 
   return {
     ...house,
+    identityReady,
     members: members.map((m) => ({
       user_id: m.user_id,
       role: m.role,
       status: m.status,
       joined_at: m.joined_at,
-      mascot: m.mascot,
+      mascot: m.mascot ?? null,
       profile: profiles?.find((profile) => profile.id === m.user_id) ?? null,
     })),
   };

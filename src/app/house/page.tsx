@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
-import { getMyHouse } from "@/modules/houses/server";
+import { getMyHouse, HouseLoadError, type HouseWithMembers } from "@/modules/houses/server";
 import { HouseDashboard } from "./house-dashboard";
+import { HouseUnavailable } from "./house-unavailable";
 import { requireVerifiedUser } from "@/modules/auth/server";
 import { loadHomeState, type HomeState } from "@/modules/houses/state";
 
@@ -13,7 +14,13 @@ export const dynamic = "force-dynamic";
 
 export default async function HousePage() {
   const user = await requireVerifiedUser();
-  const house = await getMyHouse();
+  let house: HouseWithMembers | null;
+  try {
+    house = await getMyHouse();
+  } catch (error) {
+    if (!(error instanceof HouseLoadError)) throw error;
+    return <HouseUnavailable />;
+  }
 
   if (!house) {
     redirect("/house/setup");

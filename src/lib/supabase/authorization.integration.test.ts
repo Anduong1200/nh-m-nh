@@ -118,6 +118,39 @@ describe("Supabase migrations and PostgreSQL House authorization", () => {
     expect(await asUser(users.outsider, "select * from public.house_members")).toEqual([]);
   });
 
+  it.each(["rabbit", "owl"])("persists opposite mascots for both viewers when a member chooses %s", async (mascot) => {
+    await asUser(users.a, "select public.assign_mascot($1)", [mascot]);
+    const expected = [
+      { user_id: users.a, mascot },
+      { user_id: users.partnerA, mascot: mascot === "rabbit" ? "owl" : "rabbit" },
+    ];
+    for (const viewer of [users.a, users.partnerA]) {
+      expect(await asUser(viewer, "select user_id,mascot from public.house_members order by user_id")).toEqual(expected);
+    }
+    expect(await asUser(users.b, "select mascot from public.house_members")).toEqual([{ mascot: null }, { mascot: null }]);
+    expect(await asUser(users.outsider, "select mascot from public.house_members")).toEqual([]);
+  });
+
+  it("retries the same mascot safely and refuses changing either assigned identity", async () => {
+    await asUser(users.a, "select public.assign_mascot('rabbit')");
+    await asUser(users.a, "select public.assign_mascot('rabbit')");
+    await asUser(users.partnerA, "select public.assign_mascot('owl')");
+    await expect(asUser(users.a, "select public.assign_mascot('owl')")).rejects.toThrow("Mascot already assigned");
+    await expect(asUser(users.partnerA, "select public.assign_mascot('rabbit')")).rejects.toThrow("Mascot already assigned");
+    await expect(asUser(users.a, "update public.house_members set mascot='owl' where user_id=$1", [users.a])).rejects.toMatchObject({ code: "42501" });
+  });
+
+  it("rejects anonymous, outsider, left-member, archived-House and null-input identity writes", async () => {
+    await expect(asUser(null, "select public.assign_mascot('rabbit')")).rejects.toMatchObject({ code: "42501" });
+    await expect(asUser(users.outsider, "select public.assign_mascot('rabbit')")).rejects.toMatchObject({ code: "42501" });
+    await expect(asUser(users.a, "select public.assign_mascot(null)")).rejects.toMatchObject({ code: "22023" });
+    expect(await asUser(users.a, "select mascot from public.house_members")).toEqual([{ mascot: null }, { mascot: null }]);
+    await database.query("update public.house_members set status='left',left_at=now() where user_id=$1", [users.partnerA]);
+    await expect(asUser(users.partnerA, "select public.assign_mascot('owl')")).rejects.toMatchObject({ code: "42501" });
+    await database.query("update public.houses set state='archived' where id=$1", [houseA]);
+    await expect(asUser(users.a, "select public.assign_mascot('rabbit')")).rejects.toMatchObject({ code: "42501" });
+  });
+
   it("blocks direct joining, creating orphan Houses, and changing membership keys", async () => {
     await expect(asUser(users.outsider,
       "insert into public.house_members(house_id,user_id) values ($1,$2)", [houseA, users.outsider],

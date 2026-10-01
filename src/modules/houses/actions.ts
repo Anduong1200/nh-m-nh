@@ -181,6 +181,7 @@ export async function assignMascotAction(
   mascot: "rabbit" | "owl",
 ): Promise<{ error?: string }> {
   await requireVerifiedUser();
+  if (mascot !== "rabbit" && mascot !== "owl") return { error: "Linh vật không hợp lệ." };
   const supabase = await createSupabaseServerClient("read-write");
 
   const { error } = await supabase.rpc("assign_mascot", {

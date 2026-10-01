@@ -295,6 +295,7 @@ export function HomeRoom({
               <div className="home-utility"><button type="button" className="home-subtle-button" onClick={() => void refresh()} disabled={refreshing || busy || !online}>{refreshing ? "Đang làm mới…" : "Làm mới Nhà"}</button></div>
             </div>
             {!online && <p className="home-notice" role="status">Bạn đang ngoại tuyến. Nội dung đang viết vẫn ở trong lần mở này; cần có mạng để lưu hoặc gửi.</p>}
+            {!house.identityReady && <p className="home-notice" role="status">Phần chọn Thỏ/Cú đang chờ cập nhật. Bạn vẫn có thể đổi tên, chia sẻ trạng thái và Gõ cửa.</p>}
             {loadError && <p className="home-notice home-error" role="alert">{loadError} Nội dung đang viết vẫn được giữ.</p>}
             {feedback && <p className="home-notice" role="status">{feedback}</p>}
 
@@ -312,6 +313,7 @@ export function HomeRoom({
                       <div className="home-person-header">
                         <div className="home-person-name">
                           {member.profile?.display_name || (self ? "Mình" : "Người thương")}
+                          {member.mascot && <span className="home-person-self">{member.mascot === "rabbit" ? "Thỏ" : "Cú"}</span>}
                           {self && (
                             <button
                               type="button"

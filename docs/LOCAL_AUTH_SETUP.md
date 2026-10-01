@@ -54,3 +54,19 @@ Ghi lại đã áp dụng ba timestamp trên. Nếu chuyển sang quản lý b�
 ## Thử sau khi cấu hình xong
 
 Mở `/auth/sign-in`, bấm Google, xác nhận trở về `/house/setup`. Tạo Nhà, tạo lời mời và mở lời mời trong một browser profile khác với tài khoản thứ hai. Thử trạng thái và Knock qua hai phiên. Kiểm tra đăng xuất và tải lại `/house` phải quay về đăng nhập. Đây là kiểm thử hosted cần chạy thật; 191 test local và fixture UI không thay thế được nó.
+
+## Nâng project đang dùng: chọn Thỏ/Cú
+
+Lỗi `HouseLoadError` sau ghép giao diện ngày 2026-10-01 được xác định bằng truy vấn zero-row tới project: `house_members.mascot` trả `42703` (cột chưa tồn tại). Bản sửa cho phép đọc lại các cột membership của Phase 2, vẫn qua RLS và kiểm tra đúng actor/tối đa hai thành viên. Chỉ lỗi thiếu đúng cột `mascot` được hạ về baseline; lỗi quyền/mạng hoặc schema khác vẫn đóng truy cập. UI thông báo identity chờ cập nhật, không tự gán linh vật theo người tạo Nhà hay thứ tự thành viên.
+
+Với project đã áp dụng **ba migration Phase 2** ở trên và **chưa có cột mascot**:
+
+1. Mở `supabase/upgrade-identity.sql`, sao chép toàn bộ vào **SQL Editor → New query** trong project đang dùng, rồi Run.
+2. Ghi nhận đã áp dụng `20261001110000` và `20261001111500`. Bundle chỉ chứa hai migration identity; chạy trong một transaction, giữ nguyên Nhà, tài khoản, biệt danh, trạng thái và Knock. Không chạy lại `setup-new-project.sql`.
+3. Tải lại `/house`. Ở tài khoản của bạn chọn **Thỏ**, lưu; tài khoản người yêu nhận **Cú** nếu chưa được gán. Làm mới bên người yêu và kiểm tra cả hai viewer thấy đúng tên/linh vật, đăng xuất/đăng nhập lại vẫn giữ.
+
+Bundle sinh bằng `node scripts/generate-identity-upgrade.mjs` từ SQL canonical; guard từ chối project chưa có Phase 2 hoặc đã có cột mascot. Nếu identity đã được áp dụng trước đó, chỉ áp dụng `supabase/migrations/20261001111500_harden_mascot_assignment.sql` bằng quy trình migration và ghi nhận timestamp; không chạy lại migration tạo enum/cột. Hardening từ chối anon/outsider/member đã rời/House archived/input null, khóa House trước member để thống nhất với pairing, cho retry cùng lựa chọn và giữ assignment đã tồn tại.
+
+Publishable key không có quyền áp dụng SQL. Agent chưa thay đổi database từ xa. Nếu sau này dùng CLI, đối chiếu các timestamp đã chạy SQL Editor trước `db push`; không chạy lại baseline.
+
+Sau identity, tiếp tục nghiệm thu **Shared Board + offline sync/conflict** theo `docs/PHASE3_REVIEW.md` trước Whiteboard. Migration Board `20261001120000_create_board_objects.sql` độc lập, không nằm trong bundle identity; feature đó cần review và nghiệm thu riêng. Fixture UI/unit/PGlite không thay cho thử hai account Supabase thật sau nâng schema.
