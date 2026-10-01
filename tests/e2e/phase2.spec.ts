@@ -23,9 +23,37 @@ test("Vietnamese headings load locally and room labels keep both mascots visible
     await page.setViewportSize({ width, height: 1000 });
     for (const theme of ["day", "night"]) {
       await page.getByLabel("Chọn giao diện ánh sáng").selectOption(theme);
+      await expect.poll(() => page.locator(".home-interactive-room").evaluate((room) => {
+        const probe = document.createElement("span");
+        probe.style.color = "var(--paper)";
+        room.appendChild(probe);
+        const settled = getComputedStyle(room).backgroundColor === getComputedStyle(probe).color;
+        probe.remove();
+        return settled;
+      })).toBe(true);
+      const textContrast = await page.evaluate(() => {
+        const luminance = (color: string) => {
+          const channels = (color.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number).map((channel) => {
+            const s = channel / 255;
+            return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+          });
+          return (channels[0] ?? 0) * 0.2126 + (channels[1] ?? 0) * 0.7152 + (channels[2] ?? 0) * 0.0722;
+        };
+        return [...document.querySelectorAll(".home-person-name, #knock-container, .home-interactive-room h3, [aria-label='Gõ cửa một chút']")].map((node) => {
+          let surface: Element | null = node;
+          while (surface && getComputedStyle(surface).backgroundColor === "rgba(0, 0, 0, 0)") surface = surface.parentElement;
+          if (!surface) throw new Error("Text has no opaque background.");
+          const a = luminance(getComputedStyle(node).color), b = luminance(getComputedStyle(surface).backgroundColor);
+          return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+        });
+      });
+      expect(textContrast.length).toBeGreaterThanOrEqual(5);
+      textContrast.forEach((ratio) => expect(ratio, `${width}px ${theme} text contrast`).toBeGreaterThanOrEqual(4.5));
+      await expect(page.locator("[data-mascot]")).toHaveCount(2);
+      await expect(page.locator("[data-room-control]")).toHaveCount(4);
       const overlaps = await page.evaluate(() => {
         const mascots = [...document.querySelectorAll("[data-mascot]")];
-        const labels = [...document.querySelectorAll(".home-object-button, .home-decor-label")];
+        const labels = [...document.querySelectorAll("[data-room-control], [data-room-presence]")];
         return mascots.flatMap((mascot) => labels.flatMap((label) => {
           const a = mascot.getBoundingClientRect();
           const b = label.getBoundingClientRect();
@@ -34,14 +62,20 @@ test("Vietnamese headings load locally and room labels keep both mascots visible
         }));
       });
       expect(overlaps, `${width}px ${theme}`).toEqual([]);
-      const mapClearsOwl = await page.evaluate(() => {
-        const map = document.querySelector(".scene-map-card")?.getBoundingClientRect();
-        const owl = document.querySelector('[data-mascot="owl"]')?.getBoundingClientRect();
-        return Boolean(map && owl && map.bottom < owl.top);
+      const clippedMascots = await page.evaluate(() => {
+        return [...document.querySelectorAll("[data-mascot]")].flatMap((mascot) => {
+          const frame = mascot.getBoundingClientRect();
+          const artwork = mascot.querySelector("[data-mascot-artwork]")?.getBoundingClientRect();
+          return !artwork || artwork.width < 10 || artwork.height < 10 ||
+            artwork.left < frame.left - 1 || artwork.right > frame.right + 1 ||
+            artwork.top < frame.top - 1 || artwork.bottom > frame.bottom + 1
+            ? [mascot.getAttribute("data-mascot")] : [];
+        });
       });
-      expect(mapClearsOwl, `${width}px map above owl`).toBe(true);
+      expect(clippedMascots, `${width}px ${theme} mascot artwork fits its viewport`).toEqual([]);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      for (const button of await page.locator(".home-object-button").all()) {
+      for (const button of await page.locator("[data-room-control]").all()) {
+        await expect(button).toBeVisible();
         const bounds = await button.boundingBox();
         expect(bounds?.height).toBeGreaterThanOrEqual(44);
       }

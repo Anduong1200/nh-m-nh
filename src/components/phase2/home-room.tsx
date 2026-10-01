@@ -300,15 +300,15 @@ export function HomeRoom({
 
             <HomeInteractiveRoom
               openBoard={() => setOpenDialog("board")}
-              openPresence={() => setOpenDialog("presence")}
-              openSettings={() => setOpenDialog("settings")}
-              openKnock={() => setOpenDialog("knock")}
+              openPresence={openPresence}
+              openSettings={openSettings}
+              openKnock={openKnock}
               statusesNode={
                 house.members.map((member) => {
                   const status = state.statuses.find((item) => item.userId === member.user_id);
                   const self = member.user_id === currentUserId;
                   return (
-                    <section className="home-person min-w-[200px]" key={member.user_id} aria-label={`Trạng thái ${self ? "của bạn" : "người thương"}`}>
+                    <section className="home-person" key={member.user_id} aria-label={`Trạng thái ${self ? "của bạn" : "người thương"}`}>
                       <div className="home-person-header">
                         <div className="home-person-name">
                           {member.profile?.display_name || (self ? "Mình" : "Người thương")}
@@ -351,8 +351,11 @@ export function HomeRoom({
                       ) : (
                         <p>{knock.content}</p>
                       )}
+                      {canNotifyKnock(state.preferences, new Date(now)) && (
+                        <p className="home-generic-notice">{formatKnockNotification(knock, state.preferences).body}</p>
+                      )}
                       {dismissKnock && (
-                        <button type="button" className="home-subtle-button mt-2" disabled={busy || !online} onClick={() => void hideKnock(knock.id)}>
+                        <button type="button" aria-label="Cất cú gõ khỏi góc của bạn" className="home-subtle-button mt-2" disabled={busy || !online} onClick={() => void hideKnock(knock.id)}>
                           Cất khỏi góc mình
                         </button>
                       )}

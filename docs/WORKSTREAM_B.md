@@ -99,3 +99,17 @@ Trong snapshot B đã kiểm chứng, Gemini còn cần hoàn thiện/nghiệm t
 Các kết quả áp dụng cho snapshot Workstream B với HomeScene trước khi giao diện mới được sửa đồng thời trong cùng checkout. Commit B giữ snapshot HomeRoom đã kiểm chứng; thay đổi HomeRoom và các file `phase4` của workstream giao diện được giữ trong working tree, chưa đưa vào commit B. Bản tích hợp với giao diện mới cần chạy lại lint/typecheck/build/browser checks sau khi phần giao diện ổn định.
 
 Browser tests dùng production app cho public/private-route denial và fixture riêng cho các form tương tác; Notification constructor được stub để kiểm tra permission/payload. Không chạy lại hai tài khoản Supabase thật, hosted PostgREST/RLS, independent concurrent DB connections, native notification hoặc PWA trên thiết bị vật lý. Người dùng đã báo thử hai account trước workstream này; không dùng báo cáo đó thay cho kết quả kiểm tra mới.
+
+## Integration để merge, 2026-10-01
+
+Sau commit giao diện `d27e5b1`, `feature/home-ui` và `feature/presence-knock` cùng HEAD và đã chứa commit B `f865b44`. Theo yêu cầu merge của người dùng, kiểm tra lại snapshot kết hợp trước khi đưa vào `main`.
+
+Sửa regression khi nối Home mới: các nút Presence/Knock/settings gọi lại handlers khởi tạo draft và giữ focus, thay vì chỉ đổi dialog. Khôi phục generic notice và nhãn accessible của thao tác cất Knock. Board entry dùng button thật để mở bằng bàn phím. Room/status dùng chiều cao tự nhiên, min-width an toàn và responsive columns để không cắt nội dung trên màn hình nhỏ.
+
+SVG linh vật tách group định vị khỏi group animation, mắt/tai giữ phép dịch chuyển riêng và artwork nằm đủ trong viewport. Mắt/chi tiết dùng màu outline để đọc được cả ban ngày/đêm. Knock surface theo paper token của theme để chữ không sáng trên nền sáng vào ban đêm. Không sửa schema, auth, quyền truy cập hoặc mở rộng V1 trong phần tích hợp.
+
+Layout regression vẫn kiểm tra font tiếng Việt self-hosted, hai linh vật thực sự tồn tại, artwork không bị clip, không chồng control/status, bốn control đủ 44px và không horizontal overflow ở 320/390/760/768/980/1440px. Có thêm contrast tối thiểu 4.5:1 cho tên và chữ ở góc Knock trong cả hai theme. Capture đợi theme transition hoàn tất trước khi chụp; đã xem lại sáu ảnh desktop/iPhone day/night/status của bản ghép.
+
+Verification bản tích hợp: `pnpm lint`, `pnpm typecheck`, `pnpm test` (232 tests), `pnpm build` và `pnpm build:e2e` pass. Lần browser run đầu sau sửa callback/layout pass 45/45. Run cuối sau sửa màu/contrast pass 44/45; một ca iPhone WebKit timeout tại `browserContext.newPage` trong page setup, trước mọi app assertion. Chạy lại riêng ca đó bằng `pnpm exec playwright test --project=iphone-webkit tests/e2e/shell.spec.ts --grep "automatic light follows the local clock"` pass 1/1. Cả 45 trường hợp cuối cùng đã qua, không skip hoặc tăng timeout để bỏ qua lỗi. Đã chụp và xem lại sáu ảnh của bản cuối qua fixture port 3103.
+
+Verification vẫn dùng fixture cho interaction và không thay cho hosted/two-account hoặc native-device checks. Phần Board sync/idempotent update/conflict resolution nêu trên vẫn cần workstream Board hoàn thiện. Merge local vào `main`; chưa push/deploy hoặc apply remote migrations.
