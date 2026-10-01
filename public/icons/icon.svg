@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>Ngôi nhà nhỏ của Nhà Mình</title>
+  <rect width="512" height="512" fill="#f5efe3" />
+  <path d="M124 245h264v154H124z" fill="#916849" />
+  <path d="M96 261L256 129L416 261Z" fill="#294c3c" stroke="#294c3c" stroke-width="18" stroke-linejoin="round" />
+  <path d="M228 326h56v73h-56z" fill="#f5efe3" />
+  <rect x="157" y="282" width="46" height="46" rx="7" fill="#ead39b" />
+  <rect x="309" y="282" width="46" height="46" rx="7" fill="#ead39b" />
+  <path d="M180 282v46m-23-23h46m129-23v46m-23-23h46" stroke="#916849" stroke-width="6" />
+</svg>

@@ -1,0 +1,18 @@
+# Auth foundation
+
+Supabase Auth is the canonical identity provider. Cookie-based browser/server clients and verified-user helpers support the Google sign-in UI, callback, and private House routes. Hosted sign-in remains unverified until a development Supabase project and Google provider are configured.
+
+- `createSupabaseBrowserClient()` uses only the validated public URL and modern `sb_publishable_` key. It cannot operate when configuration is absent.
+- `createSupabaseServerClient()` is server-only, creates a client per request, and awaits the Next.js cookie API. Its default read-only cookie adapter is for Server Components. Server Actions/Route Handlers must request `"read-write"`; cookie-write errors are allowed to fail instead of silently losing sessions.
+- `src/proxy.ts` refreshes sessions on `/auth/*` and `/house/*`. It forwards refreshed cookies, applies `private, no-store` and no-referrer headers, and redirects unauthenticated House page requests while retaining a validated pairing destination. The `/house/state` JSON route keeps its own denial contract. The public shell and static files do not perform auth requests.
+- `getVerifiedUser()` calls the Auth server's `getUser()`. `requireVerifiedUser()` denies access when it cannot establish a signed-in identity. Neither trusts `getSession()` or a user object supplied by the browser.
+
+All three clients use matching `SameSite=Lax`, `/` path, and `Secure` cookies in production. Local development allows HTTP cookies. Production app hosting must use HTTPS, even when the Supabase API itself is a local loopback endpoint. The SSR library requires browser-readable session cookies and keeps its `HttpOnly=false` default; protect untrusted content against XSS instead of breaking client session refresh by changing that flag. These choices follow the [Supabase SSR advanced guide](https://supabase.com/docs/guides/auth/server-side/advanced-guide).
+
+Missing configuration is allowed only to run the public bootstrap shell. Partial/invalid configuration fails validation during Next.js startup/build. Future protected pages and every private data operation must call `requireVerifiedUser()` and enforce House membership in the database; proxy cookie refresh alone does not authorize access. Do not statically cache private routes or token-bearing responses. Keep protected pages dynamic and return `Cache-Control: private, no-store` from private Route Handlers, including any new handler outside the current proxy matcher. Expand the matcher when adding authenticated routes elsewhere.
+
+The publishable key remains subject to database authorization. Phase 2 uses RLS, transaction-level membership/capacity constraints and runtime row decoders. Generate Supabase database definitions after resolving the migration installation blocker and applying the schema; client query typing remains a follow-up integration check. There is no privileged/service-role client. See `docs/PHASE2.md` for the exact unverified boundaries.
+
+`SignOutButton` checks pending local drafts/operations and allows cancellation before discarding them. It then calls `clearAccountOfflineData(verifiedUser.id)` to clear that account's drafts, queued actions and recent content, revoking active store handles, before signing out. The server invalidates private router state on successful logout. Phase 2 forms stay only in memory; durable note/doodle editing and export remain later work.
+
+API references: [Supabase SSR clients](https://supabase.com/docs/guides/auth/server-side/creating-a-client?framework=nextjs), [Supabase key types](https://supabase.com/docs/guides/getting-started/api-keys), [Next.js async cookies](https://nextjs.org/docs/app/api-reference/functions/cookies).

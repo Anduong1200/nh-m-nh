@@ -1,0 +1,51 @@
+{
+  "project": "Nhà Mình",
+  "tagline": "Ngôi nhà nhỏ và thế giới của hai đứa.",
+  "v1": [
+    "auth",
+    "pairing-house",
+    "home",
+    "presence",
+    "knock",
+    "board",
+    "whiteboard",
+    "games",
+    "letters",
+    "shared-island"
+  ],
+  "games": [
+    "doodle-relay",
+    "draw-and-guess",
+    "one-line-story",
+    "photo-mission"
+  ],
+  "design": {
+    "moods": [
+      "cozy",
+      "adventurous",
+      "cute",
+      "scout",
+      "weird",
+      "playful"
+    ],
+    "couple_identity": 5,
+    "cute_level": 4,
+    "styles": [
+      "scrapbook",
+      "hand-drawn",
+      "field-notebook"
+    ],
+    "animation_level": 3,
+    "mascots": [
+      "rabbit",
+      "owl"
+    ]
+  },
+  "platforms": [
+    "Windows desktop",
+    "iOS Safari/PWA",
+    "Android Chrome/PWA"
+  ],
+  "offline": "create notes/doodles offline and sync",
+  "autonomy": 2
+}
