@@ -85,10 +85,10 @@ export function useBoard(accountId: string, houseId: string, initialItems: Board
     void s.serial.catch(() => {});
   };
   const change = (item: BoardItem) => { setItems(prev => prev.map(i => i.id === item.id ? item : i)); persist(item); };
-  const add = () => {
+  const add = (text = "") => {
     if (!ready) return;
     const now = new Date().toISOString();
-    const item: BoardItem = { id: crypto.randomUUID(), houseId, createdBy: accountId, type: "note", payload: { text: "" }, x: Math.max(24, Math.min(160, innerWidth - 244)), y: 160, rotation: 0, zIndex: Math.min(1000000, Math.max(0, ...items.map(i => i.zIndex)) + 1), version: 0, createdAt: now, updatedAt: now, deletedAt: null };
+    const item: BoardItem = { id: crypto.randomUUID(), houseId, createdBy: accountId, type: "note", payload: { text }, x: Math.max(24, Math.min(160, innerWidth - 244)), y: 160, rotation: 0, zIndex: Math.min(1000000, Math.max(0, ...items.map(i => i.zIndex)) + 1), version: 0, createdAt: now, updatedAt: now, deletedAt: null };
     setItems(prev => [...prev,item]); persist(item);
   };
   const save = async (item: BoardItem) => {

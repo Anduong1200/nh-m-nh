@@ -27,4 +27,24 @@ test("Board UI saves, reopens and reconnects a note using the versioned domain",
   await page.getByRole("button", { name: "Lưu ghi chú", exact: true }).click();
   await expect(text).toBeEnabled();
 });
+test("Board stickers survive offline save, reconnect, movement and rotation",async({page,context})=>{
+  const url="http://127.0.0.1:3103/?board-ui=1&session="+randomUUID();
+  await page.goto(url);
+  await expect(page.getByRole("button",{name:"Thêm sticker",exact:true})).toBeEnabled();
+  await context.setOffline(true);
+  await page.getByRole("button",{name:"Thêm sticker",exact:true}).click();
+  await page.getByRole("button",{name:"Sticker leaf",exact:true}).click();
+  const card=page.getByRole("article",{name:"Sticker đã ghim",exact:true});
+  await expect(card).toContainText("🍃");
+  const save=page.getByRole("button",{name:"Lưu sticker",exact:true});
+  await save.click();await expect(save).toBeDisabled();
+  await context.setOffline(false);await expect(save).toBeEnabled();
+  await page.reload();await expect(card).toContainText("🍃");
+  const transform=await card.evaluate(e=>(e as HTMLElement).style.transform);
+  await page.getByRole("button",{name:"Di chuyển sticker",exact:true}).press("ArrowRight");
+  await page.getByRole("button",{name:"Xoay sticker",exact:true}).click();
+  await save.click();await expect(save).toBeEnabled();
+  await page.reload();await expect(card).toContainText("🍃");
+  expect(await card.evaluate(e=>(e as HTMLElement).style.transform)).not.toBe(transform);
+});
 

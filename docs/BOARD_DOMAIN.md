@@ -140,4 +140,6 @@ Verified in the isolated worktree on 2026-10-02:
 - `pnpm test:e2e --workers=1` — 57 tests passed across all three browser projects.
 - Additional browser QA exercised the labeled note create → reload → inspect queue → sync → read flow and reviewed a 390px screenshot. The in-app interactive browser tool failed to initialize (`failed to write kernel assets`), so QA used Playwright. Hosted two-account/Storage, independent PostgreSQL connections and physical installed PWAs were not run.
 
-No remote migration, merge, push or deployment was performed. The completed domain code still requires the Board UI integration described above before this becomes a complete user-facing Board feature.
+The domain and UI have since been integrated locally. The updated bottom toolbar, washi tape, sticker rendering and pointer rotation use the same durable schema-2 hook. Stickers are emoji notes within the existing text contract; no unsupported payload fields or schema-1 operations are sent. Both note and sticker saves remain explicit, with pending/error/conflict/export states and keyboard move/rotate access. No hosted migration, push or deployment was performed.
+
+Updated UI integration validation: lint, typecheck, all 337 unit/integration tests, production build and build:e2e passed. Six Board UI browser tests passed across desktop Chromium, iPhone WebKit and Android Chromium, covering offline/reconnect/reload and saved note/sticker geometry. Rebuild build:e2e after changing Tailwind classes; the fixture uses the generated production CSS.
