@@ -1,182 +1,32 @@
 "use client";
-
-import { useState, useRef } from "react";
+import { useState } from "react";
 import type { BoardItem } from "@/modules/board/model";
-import { AccountOfflineStore, type JsonValue } from "@/lib/offline/store";
-import { appendBoardObjectAction, updateBoardObjectAction } from "@/modules/board/actions";
-
-type BoardProps = {
-  houseId: string;
-  accountId: string;
-  initialItems: BoardItem[];
-  onClose: () => void;
-};
-
-type Point = { x: number; y: number };
-
-type DragState = {
-  id: string;
-  type: "move" | "rotate";
-  startPos: Point;
-  startMouse: Point;
-  startRotation: number;
-  centerX: number;
-  centerY: number;
-};
-
+import type { JsonValue } from "@/lib/offline/store";
+import { useBoard } from "./use-board";
+type BoardProps = { houseId: string; accountId: string; initialItems: BoardItem[]; onClose: () => void };
+type DragState = { id: string; startX: number; startY: number; x: number; y: number };
+const clamp = (n: number) => Math.max(-10000, Math.min(10000,n));
+const angle = (n: number) => ((n + 180) % 360 + 360) % 360 - 180;
+function remoteText(value: JsonValue) {
+  if (value && typeof value === "object" && !Array.isArray(value) && value.payload && typeof value.payload === "object" && !Array.isArray(value.payload)) return String(value.payload.text ?? "");
+  return "Nội dung đã đổi";
+}
 export function Board({ houseId, accountId, initialItems, onClose }: BoardProps) {
-  const [items, setItems] = useState<BoardItem[]>(initialItems);
-  const [dragging, setDragging] = useState<DragState | null>(null);
-  const boardRef = useRef<HTMLDivElement>(null);
-
-  // Z-index management: track the highest zIndex locally
-  const maxZIndex = items.reduce((max, item) => Math.max(max, item.zIndex), 0);
-
-  const getCardCenter = (cardElement: HTMLElement) => {
-    const rect = cardElement.getBoundingClientRect();
-    return {
-      x: rect.left + rect.width / 2,
-      y: rect.top + rect.height / 2,
-    };
-  };
-
+  const { items, operations, message, ready, change, add: addNote, save, resolve, refresh, exportLocal } = useBoard(accountId, houseId, initialItems);
+  const [dragging,setDragging] = useState<DragState | null>(null);
   const handlePointerDown = (e: React.PointerEvent, item: BoardItem, type: "move" | "rotate") => {
-    e.stopPropagation();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    
-    let center = { x: 0, y: 0 };
-    if (type === "rotate" && e.currentTarget.parentElement) {
-      center = getCardCenter(e.currentTarget.parentElement);
-    }
-
-    // Bring to front
-    const newZIndex = maxZIndex + 1;
-    setItems(prev => prev.map(i => i.id === item.id ? { ...i, zIndex: newZIndex } : i));
-
-    setDragging({
-      id: item.id,
-      type,
-      startPos: { x: item.x, y: item.y },
-      startMouse: { x: e.clientX, y: e.clientY },
-      startRotation: item.rotation,
-      centerX: center.x,
-      centerY: center.y,
-    });
+    if (type !== "move" || item.type !== "note" || operations.some(o => o.entityId === item.id)) return;
+    e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId);
+    setDragging({ id: item.id, startX: e.clientX, startY: e.clientY, x: item.x, y: item.y });
   };
-
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!dragging) return;
-    
-    if (dragging.type === "move") {
-      const dx = e.clientX - dragging.startMouse.x;
-      const dy = e.clientY - dragging.startMouse.y;
-      setItems(prev => prev.map(item => 
-        item.id === dragging.id 
-          ? { ...item, x: dragging.startPos.x + dx, y: dragging.startPos.y + dy }
-          : item
-      ));
-    } else if (dragging.type === "rotate") {
-      const startAngle = Math.atan2(dragging.startMouse.y - dragging.centerY, dragging.startMouse.x - dragging.centerX);
-      const currentAngle = Math.atan2(e.clientY - dragging.centerY, e.clientX - dragging.centerX);
-      const angleDiff = (currentAngle - startAngle) * (180 / Math.PI);
-      
-      setItems(prev => prev.map(item => 
-        item.id === dragging.id 
-          ? { ...item, rotation: dragging.startRotation + angleDiff }
-          : item
-      ));
-    }
+    const item = items.find(i => i.id === dragging?.id);
+    if (dragging && item) change({ ...item, x: clamp(dragging.x + e.clientX - dragging.startX), y: clamp(dragging.y + e.clientY - dragging.startY) });
   };
-
-  const handlePointerUp = async (e: React.PointerEvent) => {
-    if (!dragging) return;
-    e.currentTarget.releasePointerCapture(e.pointerId);
-    const draggedItem = items.find(i => i.id === dragging.id);
-    setDragging(null);
-    
-    if (draggedItem) {
-      const store = new AccountOfflineStore(accountId);
-      const updateData = { 
-        id: draggedItem.id, 
-        expectedVersion: draggedItem.version, 
-        x: draggedItem.x, 
-        y: draggedItem.y,
-        rotation: draggedItem.rotation,
-        zIndex: draggedItem.zIndex
-      };
-      
-      try {
-        await store.enqueue({
-          houseId,
-          schemaVersion: 1,
-          entityId: draggedItem.id,
-          entity: "note",
-          mutation: "update",
-          baseVersion: draggedItem.version,
-          payload: updateData as any
-        });
-        
-        const result = await updateBoardObjectAction(updateData as any);
-        if (result.item) {
-          setItems(prev => prev.map(item => item.id === result.item!.id ? result.item! : item));
-        }
-      } catch (err) {
-        console.error("Failed to enqueue board item update", err);
-      }
-    }
-  };
-
-  const addNote = async () => {
-    const id = crypto.randomUUID();
-    const newNote = {
-      id,
-      houseId,
-      createdBy: accountId,
-      type: "note" as const,
-      payload: { text: "Ghi chú mới" },
-      x: window.innerWidth / 2 - 100,
-      y: window.innerHeight / 2 - 100,
-      rotation: Math.random() * 10 - 5,
-      zIndex: maxZIndex + 1,
-      version: 1,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      deletedAt: null
-    };
-    
-    setItems(prev => [...prev, newNote]);
-    
-    try {
-      const store = new AccountOfflineStore(accountId);
-      await store.saveDraft({
-        houseId,
-        schemaVersion: 1,
-        id,
-        kind: "note",
-        payload: { text: "Ghi chú mới" },
-        expectedVersion: null
-      });
-      await store.enqueue({
-        houseId,
-        schemaVersion: 1,
-        entityId: id,
-        entity: "note",
-        mutation: "append",
-        payload: newNote as any
-      });
-      const result = await appendBoardObjectAction(newNote as any);
-      if (result.item) {
-        setItems(prev => prev.map(item => item.id === id ? result.item! : item));
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
+  const handlePointerUp = () => setDragging(null);
   return (
     <div 
-      ref={boardRef}
-      className="fixed inset-0 z-50 overflow-hidden select-none touch-none"
+            className="fixed inset-0 z-50 overflow-hidden select-none touch-none"
       style={{
         backgroundColor: "var(--scene-board)",
         backgroundImage: "radial-gradient(circle, var(--scene-wood) 1px, transparent 1px)",
@@ -201,15 +51,18 @@ export function Board({ houseId, accountId, initialItems, onClose }: BoardProps)
         </button>
         <button 
           onClick={addNote}
+          disabled={!ready}
           className="px-6 h-12 flex items-center justify-center bg-[var(--forest)] text-[var(--paper)] rounded-full text-sm font-bold shadow-sm hover:scale-105 transition-transform"
         >
           + Thêm ghi chú
         </button>
       </div>
 
+      <p role="status" className="absolute top-24 left-6 right-6 z-[1000001] rounded bg-[var(--paper)] p-2 text-sm text-[var(--forest)]">{message} <button className="underline" onClick={() => void refresh()}>Thử đồng bộ</button> · <button className="underline" onClick={() => void exportLocal()}>Xuất bản nháp</button></p>
       <div className="w-full h-full relative" style={{ touchAction: "none" }}>
         {items.map(item => {
           const isDragging = dragging?.id === item.id;
+          const pending = operations.find(o => o.entityId === item.id);
           return (
             <div
               key={item.id}
@@ -240,7 +93,8 @@ export function Board({ houseId, accountId, initialItems, onClose }: BoardProps)
               />
 
               {/* Drag Handle Area (top bar of note) */}
-              <div 
+              <button type="button" aria-label="Di chuyển ghi chú" disabled={!!pending}
+                onKeyDown={(e) => { const direction: number[] | undefined = { ArrowLeft: [-10,0], ArrowRight: [10,0], ArrowUp: [0,-10], ArrowDown: [0,10] }[e.key]; if (direction) { e.preventDefault(); change({ ...item, x: clamp(item.x + (direction[0] ?? 0)), y: clamp(item.y + (direction[1] ?? 0)) }); } }}
                 onPointerDown={(e) => handlePointerDown(e, item, "move")}
                 className="w-full h-8 cursor-grab active:cursor-grabbing bg-black/5"
               />
@@ -249,60 +103,28 @@ export function Board({ houseId, accountId, initialItems, onClose }: BoardProps)
               {item.type === "note" && (
                 <textarea 
                   className="flex-1 w-full p-4 pt-1 [font-family:var(--font-display)] text-lg leading-relaxed bg-transparent resize-none border-none outline-none overflow-hidden text-gray-800"
-                  defaultValue={(item.payload?.text as string) || ""}
+                  aria-label="Nội dung ghi chú"
+                  value={typeof item.payload.text === "string" ? item.payload.text : ""}
+                  disabled={!!pending}
+                  maxLength={10000}
                   placeholder="Viết gì đó..."
-                  onPointerDown={(e) => e.stopPropagation()} // Let user click to edit text without dragging
-                  onBlur={async (e) => {
-                    const newText = e.target.value;
-                    if (newText !== item.payload?.text) {
-                      const updateData = { 
-                        id: item.id, 
-                        expectedVersion: item.version,
-                        payload: { ...item.payload, text: newText }
-                      };
-                      
-                      setItems(prev => prev.map(i => i.id === item.id ? { ...i, payload: updateData.payload } : i));
-                      
-                      try {
-                        const store = new AccountOfflineStore(accountId);
-                        await store.saveDraft({
-                          houseId,
-                          schemaVersion: 1,
-                          id: item.id,
-                          kind: "note",
-                          payload: updateData.payload as JsonValue,
-                          expectedVersion: item.version
-                        });
-                        await store.enqueue({
-                          houseId,
-                          schemaVersion: 1,
-                          entityId: item.id,
-                          entity: "note",
-                          mutation: "update",
-                          baseVersion: item.version,
-                          payload: updateData as any
-                        });
-                        
-                        const result = await updateBoardObjectAction(updateData as any);
-                        if (result.item) {
-                          setItems(prev => prev.map(i => i.id === result.item!.id ? result.item! : i));
-                        }
-                      } catch (err) {
-                        console.error("Failed to update note text", err);
-                      }
-                    }
-                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onChange={(e) => change({ ...item, payload: { text: e.target.value } })}
                 />
               )}
 
-              {/* Rotate Handle */}
-              <div 
-                onPointerDown={(e) => handlePointerDown(e, item, "rotate")}
-                className="absolute bottom-2 right-2 w-8 h-8 rounded-full bg-black/10 flex items-center justify-center cursor-alias opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/20"
-                title="Xoay"
-              >
-                ↻
-              </div>
+              {item.type === "link" && <a href={String(item.payload.url)} target="_blank" rel="noopener noreferrer" className="p-4 underline text-[var(--forest)]">{String(item.payload.title || item.payload.url)}</a>}
+              {item.type !== "note" && item.type !== "link" && <p className="p-4 text-[var(--forest)]">{item.type === "doodle" ? "Bản vẽ đã lưu" : "Tệp riêng tư đã lưu"}</p>}
+              {item.type === "note" && <div className="flex flex-wrap gap-2 p-2 text-sm text-gray-800">
+                <button disabled={!!pending} className="rounded bg-black/10 p-2" aria-label="Xoay ghi chú" onClick={() => change({ ...item, rotation: angle(item.rotation + 15) })}>↻</button>
+                <button disabled={!!pending} className="rounded bg-[var(--forest)] p-2 text-[var(--paper)]" onClick={() => void save(item)}>Lưu ghi chú</button>
+                {pending && <span>{pending.state === "conflict" ? "Có hai bản" : "Chờ xác nhận lưu"}</span>}
+                {pending?.conflict && !pending.resolutionOperationId && <>
+                  <p className="w-full break-words">Bản của Nhà: {remoteText(pending.conflict.remote)}</p>
+                  <button className="underline" onClick={() => void resolve(pending, false)}>Giữ bản của Nhà</button>
+                  <button className="underline" onClick={() => void resolve(pending, true)}>Dùng bản đang viết</button>
+                </>}
+              </div>}
             </div>
           );
         })}

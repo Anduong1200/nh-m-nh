@@ -1,0 +1,30 @@
+import { randomUUID } from "node:crypto";
+import { expect, test } from "@playwright/test";
+test("Board UI saves, reopens and reconnects a note using the versioned domain", async ({ page, context }) => {
+  const url = "http://127.0.0.1:3103/?board-ui=1&session=" + randomUUID();
+  await page.goto(url);
+  const add = page.getByRole("button", { name: "+ Thêm ghi chú", exact: true });
+  await expect(add).toBeEnabled();
+  await add.click();
+  const text = page.getByRole("textbox", { name: "Nội dung ghi chú" });
+  await text.fill("Ghi chú thật từ giao diện");
+  await page.getByRole("button", { name: "Lưu ghi chú", exact: true }).click();
+  await expect(text).toBeEnabled();
+  await expect(page.getByRole("status")).toContainText("Bản đang viết được giữ");
+  await page.reload();
+  await expect(text).toHaveValue("Ghi chú thật từ giao diện");
+  await context.setOffline(true);
+  await text.fill("Viết khi không có mạng");
+  await page.getByRole("button", { name: "Lưu ghi chú", exact: true }).click();
+  await expect(text).toBeDisabled();
+  await expect(page.getByRole("status")).toContainText("chờ đồng bộ");
+  await context.setOffline(false);
+  await expect(text).toBeEnabled();
+  await page.reload();
+  await expect(text).toHaveValue("Viết khi không có mạng");
+  await page.getByRole("button", { name: "Xoay ghi chú" }).click();
+  await page.getByRole("button", { name: "Di chuyển ghi chú" }).press("ArrowRight");
+  await page.getByRole("button", { name: "Lưu ghi chú", exact: true }).click();
+  await expect(text).toBeEnabled();
+});
+

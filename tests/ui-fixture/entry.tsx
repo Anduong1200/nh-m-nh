@@ -7,6 +7,7 @@ import { presenceExpiresAt } from "@/modules/presence/model";
 import type { Knock, KnockInput } from "@/modules/knocks/model";
 import type { NotificationPreferences } from "@/modules/notifications/model";
 import { BoardDomainFixture, createBoardDomainHarness } from "./board-domain";
+import { Board } from "@/components/phase3/board";
 
 const ids = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"] as const;
 const params = new URLSearchParams(location.search);
@@ -45,4 +46,4 @@ function Fixture() {
   /></>;
 }
 if (params.get("board-domain") === "1") window.boardDomainTest = createBoardDomainHarness();
-createRoot(document.getElementById("root")!).render(params.get("board-domain") === "1" ? <BoardDomainFixture /> : <Fixture />);
+createRoot(document.getElementById("root")!).render(params.get("board-ui") === "1" ? <Board houseId={house.id} accountId={ids[actor]} initialItems={[]} onClose={() => history.back()} /> : params.get("board-domain") === "1" ? <BoardDomainFixture /> : <Fixture />);

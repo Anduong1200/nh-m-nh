@@ -1,77 +1,26 @@
 "use client";
-
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { AccountOfflineStore } from "@/lib/offline/store";
-import { appendBoardObjectAction, updateBoardObjectAction } from "@/modules/board/actions";
-
-function subscribeOnline(onChange: () => void) {
-  if (typeof window === "undefined") return () => {};
-  window.addEventListener("online", onChange);
-  window.addEventListener("offline", onChange);
-  return () => {
-    window.removeEventListener("online", onChange);
-    window.removeEventListener("offline", onChange);
-  };
-}
-function readOnline() { return typeof navigator !== "undefined" ? navigator.onLine : true; }
-function serverOnline() { return true; }
-
+import { BoardSyncSession } from "@/modules/board/sync";
+import { boardActionTransport } from "@/modules/board/transport";
 export function SyncCoordinator({ accountId, houseId }: { accountId: string; houseId: string }) {
-  const online = useSyncExternalStore(subscribeOnline, readOnline, serverOnline);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [conflict, setConflict] = useState(false);
-
   useEffect(() => {
-    if (!online || isSyncing) return;
-
-    const syncQueue = async () => {
-      setIsSyncing(true);
-      try {
-        const store = new AccountOfflineStore(accountId);
+    const store = new AccountOfflineStore(accountId);
+    const session = new BoardSyncSession({ accountId, houseId }, store, boardActionTransport, () => navigator.onLine);
+    let active = true;
+    const drain = () => {
+      if (!navigator.onLine) return;
+      void session.drain().then(async () => {
         const operations = await store.listOperations();
-        
-        for (const op of operations) {
-          if (op.state === "pending" && op.houseId === houseId) {
-            if (op.entity === "note") {
-              if (op.mutation === "append") {
-                const res = await appendBoardObjectAction(op.payload);
-                if (!res.error || res.error.includes("duplicate")) {
-                  await store.acknowledgeOperation(op.operationId);
-                }
-              } else if (op.mutation === "update") {
-                const res = await updateBoardObjectAction(op.payload);
-                if (res.conflict) {
-                  // Wait, store.preserveConflict handles the conflict state.
-                  // For now, we will mark it as conflict in the UI.
-                  setConflict(true);
-                } else if (!res.error) {
-                  await store.acknowledgeOperation(op.operationId);
-                }
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.error("Sync failed:", err);
-      } finally {
-        setIsSyncing(false);
-      }
+        if (active) setConflict(operations.some(o => o.houseId === houseId && o.state === "conflict"));
+      }).catch(() => {});
     };
-
-    syncQueue();
-  }, [online, accountId, houseId, isSyncing]);
-
-  if (!conflict) return null;
-
-  return (
-    <div className="fixed bottom-4 right-4 bg-red-100 text-red-800 p-4 rounded shadow-md z-[100]">
-      Có xung đột dữ liệu trên bảng. Hãy làm mới lại trang.
-      <button 
-        className="ml-4 bg-red-600 text-white px-2 py-1 rounded"
-        onClick={() => window.location.reload()}
-      >
-        Làm mới
-      </button>
-    </div>
-  );
+    drain();
+    addEventListener("online", drain);
+    addEventListener("nha-minh:board-queue", drain);
+    return () => { active = false; session.stop(); store.close(); removeEventListener("online", drain); removeEventListener("nha-minh:board-queue", drain); };
+  }, [accountId, houseId]);
+  return conflict ? <p role="status" className="fixed bottom-4 right-4 z-[100] max-w-xs rounded bg-[var(--paper)] p-3 text-[var(--forest)]">Có hai bản của một ghi chú. Mở Bảng Chung để chọn bản muốn giữ.</p> : null;
 }
+
