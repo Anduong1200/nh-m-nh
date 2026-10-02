@@ -74,6 +74,8 @@ Read [Phase 2](docs/PHASE2.md) for the preliminary assessment, behavior and veri
 
 The user later reported a successful two-account trial. [Phase 3 review](docs/PHASE3_REVIEW.md) records Board/Whiteboard/offline acceptance and requested editable names with stable rabbit/owl identities. Gemini has added identity and Board note/link code; complete Phase 3 acceptance remains pending. [Workstream B](docs/WORKSTREAM_B.md) documents the verified Presence/Knock server, expiry/RLS, notification abstraction, API contract and integration limits on `feature/presence-knock`.
 
+Update 2026-10-02: all local Home, Presence/Knock, Board and Whiteboard workstreams are merged into `main`. [Board](docs/BOARD_DOMAIN.md) includes its versioned domain, durable offline queue and updated note/sticker UI. [Whiteboard](docs/WHITEBOARD_DOMAIN.md) includes Excalidraw tooling, authorized snapshots, offline drafts and explicit conflict recovery; [ADR 002](docs/ADR/002-whiteboard-library-and-snapshot-sync.md) records the library comparison. Whiteboard still needs its Home entry connected, the additive schema applied to the hosted project, and live/physical-PWA acceptance checks. Publishing this repository does not apply database migrations or deploy the app.
+
 ## Local development
 
 Use Node.js 22.12+ on the 22 LTS line (or Node 24 LTS) and pnpm 11.25.0. Install pnpm with Corepack where available (`corepack enable`, then `corepack prepare pnpm@11.25.0 --activate`) or the official pnpm installer.

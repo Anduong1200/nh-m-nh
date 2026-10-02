@@ -1,6 +1,6 @@
 # Whiteboard — Codex implementation and UI handoff
 
-Branch: feature/whiteboard-domain. Library: Excalidraw 0.18.1, with a React-19-compatible Radix Tabs override. Read [ADR 002](ADR/002-whiteboard-library-and-snapshot-sync.md) for the eight-criterion comparison, size methodology, licensing and design tradeoffs.
+Integration baseline: main, including feature/whiteboard-domain through 929382b. Library: Excalidraw 0.18.1, with a React-19-compatible Radix Tabs override. Read [ADR 002](ADR/002-whiteboard-library-and-snapshot-sync.md) for the eight-criterion comparison, size methodology, licensing and design tradeoffs.
 
 ## Implemented contract
 
@@ -65,4 +65,4 @@ Final validation on 2026-10-02 (updated Board baseline included):
 
 The native SDK tool/library controls are scoped out of the thin adapter; only the V1 toolbar is exposed alongside native canvas/undo/zoom. The editor remounts when verified account/House props change. SDK restore-only gesture fields and empty binding lists do not count as document edits. Reconnect arriving during an offline refresh schedules another pass instead of being lost.
 
-No remote migration, push or deployment was performed. Hosted two-account Auth/PostgREST/Storage, independent PostgreSQL connection races, cold offline private-editor launch and physical iOS/Android installed PWAs were not tested here. Connect Home through this component contract, apply the additive installer after checking prerequisites, then run those acceptance checks.
+No hosted migration or deployment was performed during these validation checks. Publishing the code does not install its schema. Hosted two-account Auth/PostgREST/Storage, independent PostgreSQL connection races, cold offline private-editor launch and physical iOS/Android installed PWAs were not tested here. Connect Home through this component contract, apply the additive installer after checking prerequisites, then run those acceptance checks.
