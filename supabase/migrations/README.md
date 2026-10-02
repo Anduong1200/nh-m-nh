@@ -1,5 +1,7 @@
 # Supabase migrations
 
+Island: `20261002040000_island_event_projection.sql` adds an RLS-protected immutable application ledger, an invoker aggregate view and an internal game-artifact trigger. `../install-island.sql` is the guarded transaction for existing hardened House/Games projects. Completion/backfill is source-derived and idempotent; no client event or level-write API exists. See [Island domain](../../docs/ISLAND_DOMAIN.md).
+
 Whiteboard: `20261002020000_whiteboard_snapshots.sql` is additive and enables RLS at table creation. Both members save through one versioned RPC; clients cannot write tables directly. Existing hardened Phase 2/Board projects may use generated `../install-whiteboard.sql` once. Keep applied migrations immutable; do not use the fresh-project setup on an existing House.
 
 Board domain adds `20261002010000_board_domain.sql`: shared edit rights, creator-only trash/restore, optimistic versions, immutable retry receipts, and same-House private media references. Client writes use only `apply_board_operation`; old Board write RPC grants are revoked. Existing projects use the guarded transactional `../install-board-domain.sql` (Board absent) or `../upgrade-board-domain.sql` (legacy Board present). Regenerate with `node scripts/generate-board-upgrade.mjs`. No remote schema is modified by generation. Read [the contract and verification limits](../../docs/BOARD_DOMAIN.md) before UI integration or deployment.

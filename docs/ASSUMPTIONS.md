@@ -52,6 +52,8 @@ Whiteboard domain (2026-10-02): both active House members may edit the shared ca
 
 Games domain (2026-10-02): creator goes first; sessions require exactly two active members and retain fixed player seats. Doodle Relay defaults to six contributions and One-line Story to eight (both configurable 2–12). Draw & Guess uses one drawing and up to three exact case-sensitive guesses, then reveals its answer. Photo Mission uses the canonical immediate shared-reveal mode with one owned ready House photo per player; sealed-until-both-submit media is not implemented. There is no abandonment deadline, notification sender, deletion API, scoring or automatic memory promotion. The current assignment covers domain/persistence/offline; production UI is a separate integration. These choices follow existing V1 scope and preserve existing House/media authorization.
 
+Island domain (2026-10-02): rules version 1 exposes monotonic history evidence flags and counters without inventing numeric levels or unlock thresholds. Photo Mission records both completion categories but one history item. Weekly activity means at least one server-completed game in a UTC Monday-based week; absence never changes state. Memory/Milestone contracts remain reserved until their own domains validate persisted sources, including explicit Memory confirmation. Existing House read permissions remain in force, including an empty Island for an owner awaiting pairing. Frontend composition/offline screen integration stays separate.
+
 ## Weather/location
 
 Home may use user-selected location to decorate weather/time context.

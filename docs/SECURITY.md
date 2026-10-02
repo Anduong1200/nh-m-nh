@@ -113,6 +113,8 @@ Irreversible delete actions:
 
 ## Tests required
 
+Island uses a read-only invoker projection over House/event RLS. Application roles cannot write the ledger/view or execute internal completion emitters. Game completion events are generated atomically from same-House persisted artifacts; no sensitive artifact body is copied. Memory/Milestone contracts have no client-callable emitter. See [Island authorization and verification](ISLAND_DOMAIN.md).
+
 Games use House-authorized transactional commands, immutable player seats/event sequences and actor-private replay receipts. Draw & Guess answers are inaccessible to the guesser through tables, RPC projections and cached receipts until completion. Photo Mission accepts only owned ready House photos and uses immediate shared reveal without changing Storage permissions. Offline drafts/queues retain account/House bindings and logout generation barriers. See [Games domain](GAMES_DOMAIN.md) for authorization and test boundaries.
 
 Automated tests should include:

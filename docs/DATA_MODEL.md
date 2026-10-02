@@ -195,6 +195,8 @@ Implemented V1 Games: sessions contain fixed creator/partner seats, version, pha
 
 Prefer deriving progression from events rather than arbitrary client score.
 
+Implemented V1: `island_state` is an RLS-respecting `security_invoker` view, not a mutable table. It exposes event-count version, rules version, distinct history count, category counts, world evidence flags and latest source time. `island_events` stores source identifiers only, unique per House/type/source; game references have a same-House artifact FK. No client role can append, edit or delete events/state. Memory/Milestone event types are reserved pending validated source persistence. See [Island domain](ISLAND_DOMAIN.md).
+
 ## Media
 
 ### media_objects

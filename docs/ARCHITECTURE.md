@@ -112,6 +112,10 @@ Whiteboard V1 uses a browser-only Excalidraw adapter and versioned Supabase snap
 
 The four V1 games share authorized sessions, two fixed players, ordered immutable events and completion artifacts. Transactional RPCs enforce turns and exact replay receipts; answers have separate owner/reveal access. Account/House-bound IndexedDB drafts and versioned queued proposals preserve conflicts on reconnect. See [Games domain](GAMES_DOMAIN.md) for contracts and UI integration. Games do not require realtime or change private-media permissions.
 
+## Island
+
+Shared Island derives a read-only world projection from a House-private event ledger. Completed game artifacts emit events in the same transaction; the browser cannot append events or increment progress. The invoker view recomputes counters/flags rather than mutating a level. See [Island domain](ISLAND_DOMAIN.md) for versioned rules and reserved Memory/Milestone producers.
+
 ## Media
 
 Private storage only.
