@@ -33,6 +33,13 @@ function setup() {
     partner: (scene = textScene("Bản của Cú")) => { remote = { ...remote, version: remote.version + 1, scene, updatedBy: crypto.randomUUID(), updatedAt: new Date().toISOString() }; } };
 }
 describe("Whiteboard durable workspace and retry boundaries", () => {
+  it("undoing unsupported content to the unchanged document clears the error and permits saving",async()=>{
+    const s=setup(),w=s.make();await w.open();
+    const scene=w.getState().scene;
+    expect(w.edit({})).toBe(false);expect(w.getState().error).toBeTruthy();
+    expect(w.edit(scene)).toBe(true);expect(w.getState().error).toBeUndefined();
+    expect(w.getState().dirty).toBe(false);await w.save();expect(s.remote().version).toBe(1);await w.close();
+  });
   it("freezes context and rejects a store scoped to another account before reading private content", async () => {
     const s=setup(),binding={...s.context};
     const w=new WhiteboardWorkspace(binding,s.store,s.transport);

@@ -2,6 +2,8 @@ import { readFile,readdir } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import { expect,it } from "vitest";
 import { textScene } from "@/modules/whiteboard/test-fixtures";
+// Git may check out SQL with CRLF; compare complete source text across platforms.
+const canonicalSql=(sql:string)=>sql.replace(/\r\n/g,"\n").replace(/[ \t]+$/gm,"");
 async function foundation() {
  const db=new PGlite();
  await db.exec("create role anon;create role authenticated;create schema auth;create table auth.users(id uuid primary key);create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;grant usage on schema auth to anon,authenticated;grant execute on function auth.uid() to anon,authenticated;");
@@ -19,7 +21,7 @@ it("installs Whiteboard on populated Board without changing House/Board rows, an
   await db.query("select public.apply_board_operation($1,$2,'append',$3,0,$4)",[crypto.randomUUID(),house,crypto.randomUUID(),{type:"note",payload:{text:"Board đã có"}}]);
   const board=(await db.query("select * from public.board_objects")).rows, members=(await db.query("select * from public.house_members order by user_id")).rows;
   const source=await readFile("supabase/migrations/20261002020000_whiteboard_snapshots.sql","utf8"),installer=await readFile("supabase/install-whiteboard.sql","utf8");
-  expect(installer).toContain(source.replace(/[ \t]+(?=\r?$)/gm,""));
+  expect(canonicalSql(installer)).toContain(canonicalSql(source));
   await db.exec(installer);
   expect((await db.query("select * from public.board_objects")).rows).toEqual(board);
   expect((await db.query("select * from public.house_members order by user_id")).rows).toEqual(members);
@@ -33,7 +35,7 @@ it("installs Whiteboard on populated Board without changing House/Board rows, an
 it("fresh-project generated setup contains and applies the complete canonical migration chain",async()=>{
  const db=await foundation();try{
   const setup=await readFile("supabase/setup-new-project.sql","utf8");
-  for(const name of (await readdir("supabase/migrations")).filter(n=>n.endsWith(".sql")).sort())expect(setup).toContain((await readFile("supabase/migrations/"+name,"utf8")).replace(/[ \t]+(?=\r?$)/gm,""));
+  for(const name of (await readdir("supabase/migrations")).filter(n=>n.endsWith(".sql")).sort())expect(canonicalSql(setup)).toContain(canonicalSql(await readFile("supabase/migrations/"+name,"utf8")));
   await db.exec(setup);
   expect((await db.query("select relrowsecurity as rls from pg_class where relname in ('whiteboards','whiteboard_operations') order by relname")).rows).toEqual([{rls:true},{rls:true}]);
  }finally{await db.close();}

@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { emptyWhiteboardScene, parseWhiteboardScene, parseWhiteboardOperation, whiteboardReceipt, whiteboardSnapshot } from "./model";
+import { emptyWhiteboardScene, normalizeWhiteboardDocument, parseWhiteboardScene, parseWhiteboardOperation, whiteboardReceipt, whiteboardSnapshot } from "./model";
 import { textScene } from "./test-fixtures";
 const context = { accountId: "11111111-1111-4111-8111-111111111111", houseId: "33333333-3333-4333-8333-333333333333" };
 describe("Whiteboard bounded native snapshots", () => {
+  it("normalizes restore-only metadata while retaining geometry, bindings, native versions and tombstones",()=>{
+    const scene=textScene(),restored=structuredClone(scene);
+    restored.elements[0]!.boundElements=[];
+    expect(normalizeWhiteboardDocument(restored)).toEqual(scene);
+    restored.elements[0]!.x=17;restored.elements[0]!.version=3;restored.elements[0]!.isDeleted=true;
+    const normalized=normalizeWhiteboardDocument(restored);
+    expect(normalized.elements[0]).toMatchObject({x:17,version:3,isDeleted:true});
+    const draw={...scene.elements[0]!,type:"freedraw",boundElements:[{id:"bound",type:"text"}],lastCommittedPoint:[5,9]};
+    const clean=normalizeWhiteboardDocument({...scene,elements:[draw]}).elements[0]!;
+    expect(clean.lastCommittedPoint).toBeNull();expect(clean.boundElements).toEqual(draw.boundElements);
+    expect(draw.lastCommittedPoint).toEqual([5,9]);
+  });
   it("retains Vietnamese text and deleted element tombstones without appState", () => {
     const scene = textScene("Thỏ và Cú");
     scene.elements[0]!.isDeleted = true;

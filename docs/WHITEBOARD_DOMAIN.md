@@ -26,7 +26,7 @@ Mount the reusable component only inside a verified House session:
 />
 ~~~
 
-Import it from components/phase3/whiteboard. Remount on account/House changes (a key containing both IDs is appropriate). The wrapper sets the local asset path before the SDK loads. Preserve save/pending/error/conflict/export controls, keyboard access and explicit conflict preview. The visual composition can change; the persistence contract must remain.
+Import it from components/phase3/whiteboard. The wrapper remounts its editor on account/House changes and sets the local asset path before the SDK loads. Preserve save/pending/error/conflict/export controls, keyboard access and explicit conflict preview. The visual composition can change; the persistence contract must remain.
 
 Do not replace these actions with client table writes, add another localStorage/store, strip tombstones, or call serializeAsJSON as the persistence codec: that utility strips deletion records. Do not acknowledge a queue entry from an error string or from the newest server version. If upload support arrives later, use the private-media pipeline and a new reviewed schema codec.
 
@@ -54,4 +54,15 @@ Commands are lint, typecheck, test, build, build:e2e and full Playwright E2E. Po
 
 The browser matrix includes desktop Chromium, iPhone 12 WebKit and Pixel 7 Chromium. Android drawing uses native Chromium touch injection; iPhone WebKit tests use touch toolbar taps plus mouse-driven canvas strokes at an iPhone viewport. Physical iOS/Android installed PWA checks and live two-account testing after migration remain separate acceptance checks.
 
-Final command counts and visual-QA results are recorded below once all gates finish.
+Final validation on 2026-10-02 (updated Board baseline included):
+
+- pnpm lint and pnpm typecheck: passed.
+- pnpm test: 33 files / 379 tests passed, including real PostgreSQL RLS/grants, populated-schema installation, IDB durability, reconnect races and native restore normalization.
+- pnpm build and pnpm build:e2e: passed; no production credentials copied into this worktree.
+- pnpm test:e2e: all 72 tests passed across the three browser projects. These include nine actual-editor Whiteboard cases and six Board UI cases.
+- Strict peer installation passed; pnpm peers check reported no dependency issues with the scoped Radix override.
+- Manual browser QA saved freehand, sticky and Vietnamese text; reopened the scene as the other fixture account without creating a dirty draft; used pan/fit controls and reviewed screenshots at desktop, 390px iPhone and 320px. No horizontal overflow at 320px, and host toolbar buttons measured 44px high. The merged Board UI was also exercised through create/save/keyboard move/rotate and reviewed visually.
+
+The native SDK tool/library controls are scoped out of the thin adapter; only the V1 toolbar is exposed alongside native canvas/undo/zoom. The editor remounts when verified account/House props change. SDK restore-only gesture fields and empty binding lists do not count as document edits. Reconnect arriving during an offline refresh schedules another pass instead of being lost.
+
+No remote migration, push or deployment was performed. Hosted two-account Auth/PostgREST/Storage, independent PostgreSQL connection races, cold offline private-editor launch and physical iOS/Android installed PWAs were not tested here. Connect Home through this component contract, apply the additive installer after checking prerequisites, then run those acceptance checks.

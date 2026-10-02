@@ -2,6 +2,8 @@
 
 Ngày: 2026-10-01. Trạng thái: review mức sẵn sàng, chưa triển khai Phase 3.
 
+Cập nhật 2026-10-02: phần dưới giữ đánh giá tại thời điểm review ban đầu. Board domain/UI mới đã được tích hợp vào main (775b447), gồm lưu/offline/conflict và sticker dùng hợp đồng ghi chú hiện có. Whiteboard research, snapshot/RLS và offline adapter nằm ở feature/whiteboard-domain; đọc [ADR 002](ADR/002-whiteboard-library-and-snapshot-sync.md) và [bàn giao Whiteboard](WHITEBOARD_DOMAIN.md). Nối Whiteboard vào Home, private-media upload và recovery shell cho cold offline vẫn là phần tích hợp tiếp theo.
+
 Nguồn yêu cầu: `AGENTS.md`, `PRODUCT_SPEC.md`, `ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, `docs/UX_RULES.md`. Các đề xuất dưới đây không thay thế yêu cầu canonical; các lựa chọn còn ảnh hưởng quyền truy cập phải được chốt trước khi triển khai.
 
 ## Bối cảnh đã xác nhận
@@ -107,7 +109,7 @@ Các milestone đều nằm trong Phase 3 đã có; 3A là yêu cầu identity n
 
 ## Acceptance cần có bằng chứng
 
-**Cập nhật Codex 2026-10-02:** Board UI/domain đã tích hợp vào main (`870cad0`). Whiteboard có lựa chọn Excalidraw và implementation snapshot/RLS/offline trên `feature/whiteboard-domain`; xem [ADR 002](ADR/002-whiteboard-library-and-snapshot-sync.md) và [handoff Whiteboard](WHITEBOARD_DOMAIN.md). Home composition, recovery shell cho cold offline launch, hosted migrations và thử PWA trên thiết bị thật vẫn thuộc integration, không được suy ra từ browser fixture.
+**Cập nhật Codex 2026-10-02:** Board UI/domain đã tích hợp vào main (`775b447`), gồm cả commit UI mới và sửa lại đường lưu. Whiteboard có lựa chọn Excalidraw và implementation snapshot/RLS/offline trên `feature/whiteboard-domain`; xem [ADR 002](ADR/002-whiteboard-library-and-snapshot-sync.md) và [handoff Whiteboard](WHITEBOARD_DOMAIN.md). Home composition, recovery shell cho cold offline launch, hosted migrations và thử PWA trên thiết bị thật vẫn thuộc integration, không được suy ra từ browser fixture.
 
 - Hai viewer thấy người dùng là thỏ, người yêu là cú; nickname giữ sau login lại; không sửa profile người khác. Hai thao tác identity đồng thời không làm hai thỏ/hai cú.
 - Create note/doodle offline, đóng/reload editor, mở lại còn đủ dữ liệu, reconnect nhận một object duy nhất ở tài khoản kia.

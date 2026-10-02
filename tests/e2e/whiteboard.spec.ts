@@ -44,6 +44,7 @@ test("real editor keeps strokes offline, retries lost replies and reopens native
   await page.getByRole("button",{name:"Thử đồng bộ",exact:true}).click();
   await expect.poll(()=>page.evaluate(async()=>(await window.whiteboardTest.inspect()).operations.length)).toBe(0);
   await page.reload();await expect(page.getByRole("button",{name:"Bút",exact:true})).toBeEnabled({timeout:20000});
+  await expect(page.getByRole("status")).toContainText("Đã tải bản của Nhà.");
   const remote=await page.evaluate(()=>window.whiteboardTest.remote());
   expect(remote.version).toBe(2);
   expect(remote.scene.elements.some(e=>e.type==="freedraw")).toBe(true);

@@ -69,8 +69,12 @@ export class WhiteboardWorkspace {
     if (this.closed || !this.state.ready || this.localBlocked) return false;
     const parsed = parseWhiteboardScene(scene);
     if (!parsed) { this.invalidScene = true; this.publish({ error: "Bản vẽ có nội dung chưa hỗ trợ hoặc vượt giới hạn. Hãy hoàn tác trước khi lưu." }); return false; }
+    const wasInvalid=this.invalidScene;
     this.invalidScene = false;
-    if (sameBoardJson(this.state.scene,parsed)) return true;
+    if (sameBoardJson(this.state.scene,parsed)) {
+      if (wasInvalid) this.publish({error:undefined});
+      return true;
+    }
     this.revision++;
     this.publish({ scene: parsed, dirty: true, localSaved: false, error: undefined });
     void this.flush().catch(() => {});

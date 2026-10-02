@@ -11,6 +11,13 @@ export type WhiteboardOperation = { operationId: string; expectedVersion: number
 export type WhiteboardReceipt = { operationId: string; actorId: string; houseId: string; outcome: "applied" | "conflict"; snapshot: WhiteboardSnapshot };
 export const emptyWhiteboardScene = (): WhiteboardScene => ({ schemaVersion: 1, library: "excalidraw", libraryVersion: WHITEBOARD_LIBRARY_VERSION, elements: [] });
 export const whiteboardLocalId = (houseId: string) => "whiteboard:" + houseId;
+/** Native restore resets gesture bookkeeping; empty/null bindings mean the same document. */
+export function normalizeWhiteboardDocument(scene: WhiteboardScene): WhiteboardScene {
+  return { ...scene, elements: scene.elements.map(e=>({ ...e,
+    ...(Array.isArray(e.boundElements) && e.boundElements.length===0 ? {boundElements:null} : {}),
+    ...(["freedraw","line","arrow"].includes(String(e.type)) ? {lastCommittedPoint:null} : {})
+  })) };
+}
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const keys = (v: Record<string, unknown>, allowed: readonly string[]) => Object.keys(v).every(k => allowed.includes(k));
 const num = (v: unknown, min: number, max: number) => typeof v === "number" && Number.isFinite(v) && v >= min && v <= max;

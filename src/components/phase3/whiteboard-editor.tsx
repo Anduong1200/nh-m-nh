@@ -6,7 +6,7 @@ import "@excalidraw/excalidraw/index.css";
 import "./whiteboard.css";
 import { AccountOfflineStore } from "@/lib/offline/store";
 import { sameBoardJson } from "@/modules/board/model";
-import { whiteboardSnapshot } from "@/modules/whiteboard/model";
+import { normalizeWhiteboardDocument, whiteboardSnapshot } from "@/modules/whiteboard/model";
 import { captureWhiteboardElements, restoreWhiteboardElements } from "@/modules/whiteboard/excalidraw-codec";
 import { WhiteboardWorkspace } from "@/modules/whiteboard/workspace";
 import { whiteboardActionTransport } from "@/modules/whiteboard/transport";
@@ -38,7 +38,7 @@ function WorkspaceEditor({ workspace,onClose }: { workspace: WhiteboardWorkspace
     previewRef.current=preview;
     if (!api) return;
     const current=captureWhiteboardElements(api.getSceneElementsIncludingDeleted());
-    if (!current || !sameBoardJson(current,scene)) {
+    if (!current || !sameBoardJson(current,normalizeWhiteboardDocument(scene))) {
       api.history.clear();
       api.updateScene({ elements:restoreWhiteboardElements(scene),captureUpdate:CaptureUpdateAction.NEVER });
     }
@@ -99,7 +99,8 @@ function WorkspaceEditor({ workspace,onClose }: { workspace: WhiteboardWorkspace
           if (previewRef.current) return;
           const next=captureWhiteboardElements(elements);
           if (!next) { setInvalid(true); workspace.edit({}); return; }
-          setInvalid(false);workspace.edit(next);
+          const current=workspace.getState().scene;
+          setInvalid(false);workspace.edit(sameBoardJson(next,normalizeWhiteboardDocument(current)) ? current : next);
         }}>
         <MainMenu />
         <WelcomeScreen><WelcomeScreen.Center><WelcomeScreen.Center.Heading>Để lại một nét cho người ấy.</WelcomeScreen.Center.Heading></WelcomeScreen.Center></WelcomeScreen>

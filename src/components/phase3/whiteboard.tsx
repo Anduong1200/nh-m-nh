@@ -7,4 +7,4 @@ const Editor = dynamic(async () => {
   return import("./whiteboard-editor");
 }, { ssr: false, loading: () => <p role="status">Đang mở bảng vẽ…</p> });
 /** Thin integration surface for Home/UI; the SDK loads only when this panel mounts. */
-export function Whiteboard(props: WhiteboardProps) { return <Editor {...props} />; }
+export function Whiteboard(props: WhiteboardProps) { return <Editor key={props.accountId+":"+props.houseId} {...props} />; }
