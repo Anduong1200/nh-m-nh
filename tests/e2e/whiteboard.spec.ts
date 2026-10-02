@@ -1,0 +1,99 @@
+import { randomUUID } from "node:crypto";
+import { expect,test, type Page } from "@playwright/test";
+import type {} from "../ui-fixture/whiteboard-entry";
+const url=(session:string,actor=0)=>"http://127.0.0.1:3103/?whiteboard=1&session="+session+"&actor="+actor;
+async function draw(page:Page) {
+  await expect(page.getByRole("button",{name:"Bút",exact:true})).toBeEnabled({timeout:20000});
+  const touch=await page.evaluate(()=>navigator.maxTouchPoints>0);
+  if(touch)await page.getByRole("button",{name:"Bút",exact:true}).tap();else await page.getByRole("button",{name:"Bút",exact:true}).click();
+  const canvas=page.locator(".excalidraw canvas").last();
+  const box=await canvas.boundingBox();if(!box)throw new Error("Canvas missing");
+  if(touch&&page.context().browser()?.browserType().name()==="chromium") {
+    const cdp=await page.context().newCDPSession(page);
+    await cdp.send("Input.dispatchTouchEvent",{type:"touchStart",touchPoints:[{x:box.x+80,y:box.y+90,id:1}]});
+    for(let i=1;i<=12;i++)await cdp.send("Input.dispatchTouchEvent",{type:"touchMove",touchPoints:[{x:box.x+80+i*7,y:box.y+90+i*2,id:1}]});
+    await cdp.send("Input.dispatchTouchEvent",{type:"touchEnd",touchPoints:[]});await cdp.detach();
+  } else {
+    await page.mouse.move(box.x+80,box.y+90);await page.mouse.down();
+    await page.mouse.move(box.x+140,box.y+110,{steps:8});await page.mouse.move(box.x+170,box.y+80,{steps:8});await page.mouse.up();
+  }
+}
+test("real editor keeps strokes offline, retries lost replies and reopens native text/stickies",async({page,context})=>{
+  test.setTimeout(60000);
+  const session=randomUUID(),errors:string[]=[],external:string[]=[];
+  page.on("pageerror",e=>errors.push(e.message));
+  page.on("request",r=>{if(!r.url().startsWith("http://127.0.0.1:3103/")&&!r.url().startsWith("data:"))external.push(r.url());});
+  await page.goto(url(session));await draw(page);
+  await expect(page.getByRole("button",{name:"More tools",exact:true})).not.toBeVisible();
+  await expect(page.getByRole("checkbox",{name:"Library",exact:true})).not.toBeVisible();
+  await expect.poll(()=>page.evaluate(async()=>(await window.whiteboardTest.inspect()).drafts.length)).toBe(1);
+  await context.setOffline(true);
+  await page.getByRole("button",{name:"Lưu vào Nhà",exact:true}).click();
+  await expect.poll(()=>page.evaluate(async()=>(await window.whiteboardTest.inspect()).operations.length)).toBe(1);
+  await context.setOffline(false);await expect.poll(()=>page.evaluate(async()=>(await window.whiteboardTest.remote()).version)).toBe(1);
+  await expect.poll(()=>page.evaluate(async()=>(await window.whiteboardTest.inspect()).operations.length)).toBe(0);
+  await page.getByRole("button",{name:"Giấy nhớ",exact:true}).click();
+  await expect.poll(()=>page.evaluate(async()=>{
+    const drafts=(await window.whiteboardTest.inspect()).drafts;
+    return JSON.stringify(drafts).includes("Giấy nhớ");
+  })).toBe(true);
+  await page.evaluate(()=>window.whiteboardTest.lose());
+  await page.getByRole("button",{name:"Lưu vào Nhà",exact:true}).click();
+  await expect.poll(()=>page.evaluate(async()=>(await window.whiteboardTest.remote()).version)).toBe(2);
+  await expect.poll(()=>page.evaluate(async()=>(await window.whiteboardTest.inspect()).operations.length)).toBe(1);
+  await page.getByRole("button",{name:"Thử đồng bộ",exact:true}).click();
+  await expect.poll(()=>page.evaluate(async()=>(await window.whiteboardTest.inspect()).operations.length)).toBe(0);
+  await page.reload();await expect(page.getByRole("button",{name:"Bút",exact:true})).toBeEnabled({timeout:20000});
+  const remote=await page.evaluate(()=>window.whiteboardTest.remote());
+  expect(remote.version).toBe(2);
+  expect(remote.scene.elements.some(e=>e.type==="freedraw")).toBe(true);
+  expect(remote.scene.elements.some(e=>e.type==="rectangle")).toBe(true);
+  expect(remote.scene.elements.some(e=>e.type==="text"&&e.text==="Giấy nhớ")).toBe(true);
+  expect(external).toEqual([]);expect(errors).toEqual([]);
+});
+test("editor presents both scenes and replacement never overwrites an unseen partner version",async({page})=>{
+  test.setTimeout(60000);
+  await page.goto(url(randomUUID()));await draw(page);
+  await page.getByRole("button",{name:"Lưu vào Nhà",exact:true}).click();
+  await expect.poll(()=>page.evaluate(async()=>(await window.whiteboardTest.remote()).version)).toBe(1);
+  await page.getByRole("button",{name:"Giấy nhớ",exact:true}).click();
+  await page.evaluate(()=>window.whiteboardTest.partner("Cú viết một điều"));
+  await page.getByRole("button",{name:"Lưu vào Nhà",exact:true}).click();
+  await expect(page.getByText("Có hai bản vẽ.",{exact:false})).toBeVisible();
+  await page.getByRole("button",{name:"Xem bản của Nhà",exact:true}).click();
+  await expect(page.getByRole("button",{name:"Xem bản đang vẽ",exact:true})).toBeVisible();
+  await page.evaluate(()=>window.whiteboardTest.partner("Bản mới chưa xem"));
+  await page.getByRole("button",{name:"Dùng bản đang vẽ",exact:true}).click();
+  await expect(page.getByText("Bản của Nhà ở version 3",{exact:false})).toBeVisible();
+  await page.getByRole("button",{name:"Giữ bản của Nhà",exact:true}).click();
+  await expect(page.getByText("Có hai bản vẽ.",{exact:false})).toHaveCount(0);
+  expect(await page.evaluate(async()=>(await window.whiteboardTest.remote()).version)).toBe(3);
+  expect((await page.evaluate(()=>window.whiteboardTest.inspect())).drafts.length).toBeGreaterThan(1);
+});
+test("basic tools keep highlighter, Vietnamese text, eraser tombstones and keyboard undo serializable",async({page})=>{
+  test.setTimeout(60000);
+  await page.goto(url(randomUUID()));await draw(page);
+  const canvas=page.locator(".excalidraw canvas").last();
+  await page.getByRole("button",{name:"Tô sáng",exact:true}).click();
+  const box=await canvas.boundingBox();if(!box)throw new Error("Canvas missing");
+  await page.mouse.move(box.x+80,box.y+180);await page.mouse.down();await page.mouse.move(box.x+180,box.y+190,{steps:8});await page.mouse.up();
+  await page.getByRole("button",{name:"Chữ",exact:true}).click();
+  await page.mouse.dblclick(box.x+50,box.y+240);
+  const editor=page.locator("textarea.excalidraw-wysiwyg");
+  await expect(editor).toBeVisible();await editor.fill("Thỏ và Cú — tiếng Việt");await editor.press("Escape");
+  await page.getByRole("button",{name:"Lưu vào Nhà",exact:true}).click();
+  await expect.poll(()=>page.evaluate(async()=>(await window.whiteboardTest.remote()).version)).toBe(1);
+  const first=await page.evaluate(()=>window.whiteboardTest.remote());
+  expect(first.scene.elements.some(e=>e.type==="freedraw"&&e.opacity===35&&e.strokeWidth===12)).toBe(true);
+  expect(first.scene.elements.some(e=>e.type==="text"&&e.text==="Thỏ và Cú — tiếng Việt")).toBe(true);
+  await page.getByRole("button",{name:"Tẩy",exact:true}).click();
+  const current=await canvas.boundingBox();if(!current)throw new Error("Canvas missing");
+  await page.mouse.move(current.x+90,current.y+95);await page.mouse.down();await page.mouse.move(current.x+160,current.y+105,{steps:8});await page.mouse.up();
+  await page.getByRole("button",{name:"Lưu vào Nhà",exact:true}).click();
+  await expect.poll(()=>page.evaluate(async()=>(await window.whiteboardTest.remote()).version)).toBe(2);
+  expect((await page.evaluate(()=>window.whiteboardTest.remote())).scene.elements.some(e=>e.isDeleted)).toBe(true);
+  await page.keyboard.press("Control+z");
+  await page.getByRole("button",{name:"Lưu vào Nhà",exact:true}).click();
+  await expect.poll(()=>page.evaluate(async()=>(await window.whiteboardTest.remote()).version)).toBe(3);
+  expect((await page.evaluate(()=>window.whiteboardTest.remote())).scene.elements.filter(e=>e.type==="freedraw"&&e.isDeleted).length).toBe(0);
+});

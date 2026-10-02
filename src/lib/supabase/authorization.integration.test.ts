@@ -2,6 +2,8 @@ import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { textScene } from "@/modules/whiteboard/test-fixtures";
+import { emptyWhiteboardScene, parseWhiteboardScene, type WhiteboardScene, type WhiteboardReceipt } from "@/modules/whiteboard/model";
 
 // This suite executes real PostgreSQL policies and privileges. Only Supabase's
 // auth.users/auth.uid() boundary is shimmed; application clients are not mocked.
@@ -423,4 +425,65 @@ describe("Supabase migrations and PostgreSQL House authorization", () => {
     expect(await asUser(users.outsider,"select * from public.media_objects")).toEqual([]);
     await expect(asUser(users.a,"update public.media_objects set state='ready' where id=$1",[pending])).rejects.toMatchObject({code:"42501"});
   });
+
+  async function whiteboard(userId: string | null, house = houseA, version = 0, scene = textScene(), op = crypto.randomUUID()) {
+    return (await asUser<{ result: WhiteboardReceipt }>(userId,"select public.save_whiteboard_snapshot($1,$2,$3,$4) as result",[op,house,version,scene]))[0]!.result;
+  }
+  it("Whiteboard permits both members to save snapshots and keeps operation history actor-private", async () => {
+    const a = await whiteboard(users.a);
+    expect(a).toMatchObject({outcome:"applied",snapshot:{version:1,houseId:houseA,updatedBy:users.a}});
+    const b = await whiteboard(users.partnerA,houseA,1,textScene("Cú viết tiếp"));
+    expect(b.snapshot.version).toBe(2);
+    expect((await asUser(users.a,"select scene from public.whiteboards"))[0]).toEqual({scene:textScene("Cú viết tiếp")});
+    expect((await asUser(users.partnerA,"select * from public.whiteboard_operations")).length).toBe(1);
+    expect((await asUser(users.a,"select * from public.whiteboard_operations")).length).toBe(1);
+    expect(await asUser(users.b,"select * from public.whiteboards")).toEqual([]);
+    expect(await asUser(users.outsider,"select * from public.whiteboards")).toEqual([]);
+    await expect(asUser(null,"select * from public.whiteboards")).rejects.toMatchObject({code:"42501"});
+  });
+  it("Whiteboard conflicts preserve the remote scene and exact retries return the original immutable receipt", async () => {
+    const op = crypto.randomUUID(), scene = textScene("Bản đầu");
+    const first = await whiteboard(users.a,houseA,0,scene,op);
+    await whiteboard(users.partnerA,houseA,1,textScene("Bản của Cú"));
+    const conflict = await whiteboard(users.a,houseA,1,textScene("Bản của Thỏ"));
+    expect(conflict).toMatchObject({outcome:"conflict",snapshot:{version:2,scene:textScene("Bản của Cú")}});
+    expect(await whiteboard(users.a,houseA,0,scene,op)).toEqual(first);
+    await expect(whiteboard(users.a,houseA,0,textScene("Changed replay"),op)).rejects.toMatchObject({code:"23505"});
+    await expect(whiteboard(users.partnerA,houseA,0,scene,op)).rejects.toMatchObject({code:"23505"});
+    expect((await asUser<{version:number}>(users.a,"select version from public.whiteboards"))[0]!.version).toBe(2);
+  });
+  it("Whiteboard denies cross-House, anonymous, revoked, archived and direct-table writes", async () => {
+    const saved = await whiteboard(users.a);
+    await expect(whiteboard(null)).rejects.toMatchObject({code:"42501"});
+    await expect(whiteboard(users.b)).rejects.toMatchObject({code:"42501"});
+    await expect(whiteboard(users.a,houseB)).rejects.toMatchObject({code:"42501"});
+    for (const sql of ["update public.whiteboards set version=99","delete from public.whiteboards","insert into public.whiteboards(house_id,version,scene,updated_by) values($1,1,$2,$3)"]) {
+      await expect(asUser(users.a,sql,sql.startsWith("insert") ? [houseA,textScene(),users.a] : [])).rejects.toMatchObject({code:"42501"});
+    }
+    for (const sql of ["delete from public.whiteboard_operations","update public.whiteboard_operations set outcome='applied'"]) await expect(asUser(users.a,sql)).rejects.toMatchObject({code:"42501"});
+    await database.query("update public.house_members set status='left',left_at=now() where user_id=$1",[users.partnerA]);
+    expect(await asUser(users.partnerA,"select * from public.whiteboards")).toEqual([]);
+    await expect(whiteboard(users.partnerA,houseA,1)).rejects.toMatchObject({code:"42501"});
+    await database.query("update public.houses set state='archived' where id=$1",[houseA]);
+    expect(await asUser(users.a,"select * from public.whiteboards")).toEqual([]);
+    expect(await asUser(users.a,"select * from public.whiteboard_operations")).toEqual([]);
+    await expect(whiteboard(users.a,houseA,0,textScene(),saved.operationId)).rejects.toMatchObject({code:"42501"});
+  });
+  it("Whiteboard validates native scene bounds at SQL as well as the client", async () => {
+    const invalid = [
+      { ...textScene(), libraryVersion:"other" }, { ...textScene(), files:{file:"private"} },
+      ...[{link:"https://external.invalid"},{type:"image"},{customData:{html:"<script>"}},{fontFamily:"5"},{x:100001},{seed:null},{text:"bad\u0001"},{text:"x".repeat(10001)},{containerId:"missing"},{boundElements:[{id:"missing",type:"text"}]}].map(patch => {
+        const scene=textScene(); Object.assign(scene.elements[0]!,patch); return scene;
+      }),
+      { ...textScene(),elements:[textScene().elements[0],textScene().elements[0]] },
+      { ...textScene(),elements:Array.from({length:1001},(_,i)=>({...textScene().elements[0],id:String(i)})) },
+    ];
+    for (const scene of [textScene(), emptyWhiteboardScene(),...invalid]) {
+      const expected=!!parseWhiteboardScene(scene);
+      expect((await asUser<{valid:boolean}>(users.a,"select public.whiteboard_scene_valid($1) as valid",[scene]))[0]!.valid).toBe(expected);
+      if (!expected) await expect(whiteboard(users.a,houseA,0,scene as WhiteboardScene)).rejects.toMatchObject({code:"22023"});
+    }
+    expect(await asUser(users.a,"select * from public.whiteboards")).toEqual([]);
+  });
+
 });

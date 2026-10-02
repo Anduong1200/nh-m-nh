@@ -104,6 +104,10 @@ Persist timestamps in UTC.
 Render in each user’s local timezone.
 Scheduled letters must store an unambiguous instant plus relevant user-facing timezone metadata when needed.
 
+## Whiteboard
+
+Whiteboard V1 uses a browser-only Excalidraw adapter and versioned Supabase snapshots. The existing account/House-bound IndexedDB store retains drafts and immutable pending operations; explicit full-scene conflict decisions prevent silent replacement. See [ADR 002](ADR/002-whiteboard-library-and-snapshot-sync.md) and [Whiteboard integration](WHITEBOARD_DOMAIN.md).
+
 ## Media
 
 Private storage only.

@@ -1,7 +1,7 @@
 /* Public app-shell assets only. Relationship content belongs in account-scoped IDB. */
 const CACHE_PREFIX = "nha-minh-public-";
 const SHELL_CACHE = `${CACHE_PREFIX}shell-v1`;
-const ASSET_CACHE = `${CACHE_PREFIX}assets-v1`;
+const ASSET_CACHE = `${CACHE_PREFIX}assets-v2`;
 const SHELL_ASSETS = [
   "/offline.html",
   "/icons/icon-192.png",
@@ -106,7 +106,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (url.pathname.startsWith("/_next/static/") && url.search === "") {
+  if ((url.pathname.startsWith("/_next/static/") || /^\/vendor\/excalidraw-0\.18\.1\/fonts\/(Excalifont|Xiaolai)\/[\w.-]+\.woff2$/.test(url.pathname)) && url.search === "") {
     event.respondWith(loadStaticAsset(request));
     return;
   }

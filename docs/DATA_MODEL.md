@@ -119,12 +119,21 @@ Both House members edit; only the creator trashes/restores. Ledger SELECT is act
 - id
 - house_id
 - version
+- scene (bounded native Excalidraw envelope)
+- updated_by
 - created_at
 - updated_at
 
-### whiteboard_snapshots/events
-Choose based on library integration.
-Must support safe sync and conflict semantics.
+### whiteboard_operations
+- operation_id
+- house_id
+- actor_id
+- request (expected version + immutable scene)
+- outcome (applied / conflict)
+- snapshot (exact versioned receipt)
+- created_at
+
+One Whiteboard per active House. Both members edit; clients have SELECT only with RLS. Writes use `save_whiteboard_snapshot`, with exact retry replay and no automatic full-canvas merge. Operation history is actor-private and remains sensitive. No purge API or images/embeds in this codec. See [Whiteboard domain](WHITEBOARD_DOMAIN.md).
 
 ## Games
 

@@ -107,6 +107,8 @@ Các milestone đều nằm trong Phase 3 đã có; 3A là yêu cầu identity n
 
 ## Acceptance cần có bằng chứng
 
+**Cập nhật Codex 2026-10-02:** Board UI/domain đã tích hợp vào main (`870cad0`). Whiteboard có lựa chọn Excalidraw và implementation snapshot/RLS/offline trên `feature/whiteboard-domain`; xem [ADR 002](ADR/002-whiteboard-library-and-snapshot-sync.md) và [handoff Whiteboard](WHITEBOARD_DOMAIN.md). Home composition, recovery shell cho cold offline launch, hosted migrations và thử PWA trên thiết bị thật vẫn thuộc integration, không được suy ra từ browser fixture.
+
 - Hai viewer thấy người dùng là thỏ, người yêu là cú; nickname giữ sau login lại; không sửa profile người khác. Hai thao tác identity đồng thời không làm hai thỏ/hai cú.
 - Create note/doodle offline, đóng/reload editor, mở lại còn đủ dữ liệu, reconnect nhận một object duy nhất ở tài khoản kia.
 - Commit thành công nhưng mất response: retry create **và update** không nhân bản hoặc conflict giả.

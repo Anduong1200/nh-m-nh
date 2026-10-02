@@ -69,6 +69,7 @@ Priority:
 Board domain tests and the simulated browser transport are documented in [BOARD_DOMAIN.md](BOARD_DOMAIN.md#verification-boundaries). SQL tests run the real migration chain under PostgreSQL roles; browser tests run real IndexedDB/sync with separate simulated HTTP data. Both are required; neither claims hosted Storage/Auth or independent connection concurrency coverage. The Home palette test waits for CSS transitions before asserting final contrast, retaining the original accessibility threshold.
 
 Do not report “done” if tests were skipped.
+Whiteboard tests use actual SQL/RLS, actual native editor serialization and IndexedDB. Browser transport stays simulated and isolated from production auth. Android strokes use Chromium native touch injection; iPhone WebKit covers touch toolbar interaction and canvas at an iPhone viewport, with physical installed-PWA acceptance still separate. See [the Whiteboard verification boundary](WHITEBOARD_DOMAIN.md#verification).
 Report:
 - command;
 - pass/fail;

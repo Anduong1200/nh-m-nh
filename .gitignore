@@ -13,3 +13,4 @@ test-results/
 *.log
 .DS_Store
 Thumbs.db
+public/vendor/excalidraw-0.18.1/fonts/

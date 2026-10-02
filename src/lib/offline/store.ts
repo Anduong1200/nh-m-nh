@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 
-export type OfflineContentKind = "note" | "doodle";
+export type OfflineContentKind = "note" | "doodle" | "whiteboard";
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 export interface OfflineDraft {
@@ -138,6 +138,8 @@ export type DraftSaveResult =
 
 /** Local persistence only: account scoping does not replace authentication or RLS. */
 export class AccountOfflineStore {
+  /** Namespace binding only; the server/RLS still verifies authentication. */
+  get accountScope() { return this.accountId; }
   private cleared = false;
   private readonly epoch: Promise<number>;
 

@@ -36,7 +36,7 @@ export class BoardSyncSession {
   constructor(context: BoardContext, private readonly store: AccountOfflineStore,
     private readonly transport: BoardSyncTransport, private readonly canProceed: () => boolean = () => true) {
     const binding = parseBoardContext(context);
-    if (!binding) throw new Error("A verified account/House binding is required.");
+    if (!binding || binding.accountId !== store.accountScope) throw new Error("A verified account/House and matching account store are required.");
     this.context = Object.freeze(binding);
   }
   stop() { this.active = false; }
@@ -54,7 +54,7 @@ export class BoardSyncSession {
     const report: BoardSyncReport = { acknowledged: [], conflicts: [], blocked: [] };
     try {
       await this.check();
-      const operations = (await this.store.listOperations()).sort((a,b) => (a.sequence ?? 0) - (b.sequence ?? 0) || a.createdAt.localeCompare(b.createdAt) || a.operationId.localeCompare(b.operationId));
+      const operations = (await this.store.listOperations()).filter(o => o.entity === "note" || o.entity === "doodle").sort((a,b) => (a.sequence ?? 0) - (b.sequence ?? 0) || a.createdAt.localeCompare(b.createdAt) || a.operationId.localeCompare(b.operationId));
       const held = new Set(operations.filter((o) => o.houseId === this.context.houseId && (o.state === "conflict" || o.schemaVersion !== BOARD_SCHEMA_VERSION)).map((o) => o.entityId));
       for (const queued of operations) {
         if (queued.houseId !== this.context.houseId) continue; // Never rebind another House's work.

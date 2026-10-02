@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import "./prepare-whiteboard-assets.mjs";
 
 // Keep browser fixtures independent of a developer's real Supabase project.
 // Empty values override .env.local without changing that file or the dev server.

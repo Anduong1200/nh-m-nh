@@ -4,12 +4,19 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "esbuild";
 import { handleBoardFixture } from "./board-server.mjs";
+import { handleWhiteboardFixture } from "./whiteboard-server.mjs";
 
 const bundle = await build({ entryPoints: ["tests/ui-fixture/entry.tsx"], bundle: true, write: false, format: "esm", platform: "browser", jsx: "automatic", define: { "process.env.NODE_ENV": '"production"' },
   // Phase 2 fixture never imports real server actions or Supabase into its browser bundle.
   // Board has its own workstream; invoking it here fails explicitly.
   alias: { "@/modules/board/actions": "./tests/ui-fixture/board-actions.ts" },
 });
+const whiteboardBundle = await build({ entryPoints: ["tests/ui-fixture/whiteboard-entry.tsx"], bundle: true, write: false, minify: true, splitting: true, outdir: ".pnpm-cache/whiteboard-fixture", format: "esm", platform: "browser", jsx: "automatic", conditions: ["production"],
+  loader: { ".woff2": "file" },
+  define: { "process.env.NODE_ENV": '"production"', "process.env.IS_PREACT": "false" },
+  alias: { "@/modules/whiteboard/actions": "./tests/ui-fixture/whiteboard-actions.ts" },
+});
+const whiteboardFiles = new Map(whiteboardBundle.outputFiles.map(f => [f.path.split(/[\\/]/).at(-1), f]));
 async function styles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = await Promise.all(entries.map(async (entry) => entry.isDirectory() ? styles(join(directory, entry.name)) : entry.name.endsWith(".css") ? readFile(join(directory, entry.name), "utf8") : ""));
@@ -35,6 +42,17 @@ function json(response, value, status = 200) {
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
+  if (url.pathname.startsWith("/whiteboard-fixture/")) {
+    const name = url.pathname.split("/").at(-1), file = whiteboardFiles.get(name);
+    if (!file) { response.writeHead(404); response.end(); return; }
+    response.writeHead(200, { "Content-Type": name.endsWith(".css") ? "text/css" : name.endsWith(".woff2") ? "font/woff2" : "text/javascript" });
+    response.end(file.contents); return;
+  }
+  if (/^\/vendor\/excalidraw-0\.18\.1\/fonts\/(Excalifont|Xiaolai)\/[\w.-]+\.woff2$/.test(url.pathname)) {
+    try { const font=await readFile(join("public",url.pathname)); response.writeHead(200,{"Content-Type":"font/woff2","Cache-Control":"public, max-age=31536000, immutable"}); response.end(font); }
+    catch { response.writeHead(404); response.end(); }
+    return;
+  }
   if (/^\/_next\/static\/media\/[\w.-]+\.(woff2?|ttf|otf)$/.test(url.pathname)) {
     try {
       const font = await readFile(join(".next/static/media", url.pathname.split("/").at(-1)));
@@ -47,10 +65,12 @@ const server = createServer(async (request, response) => {
   if (url.pathname === "/styles.css") { response.writeHead(200, { "Content-Type": "text/css" }); response.end(css); return; }
   if (!url.pathname.startsWith("/api/")) {
     response.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-store" });
-    response.end(`<!doctype html><html lang="vi" class="${fontClass}" data-theme="day"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nhà Mình · Kiểm thử giao diện</title><link rel="stylesheet" href="/styles.css"></head><body><div id="root"></div><script type="module" src="/bundle.js"></script></body></html>`);
+    const whiteboard = url.searchParams.get("whiteboard") === "1";
+    response.end(`<!doctype html><html lang="vi" class="${fontClass}" data-theme="day"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nhà Mình · Kiểm thử giao diện</title><link rel="stylesheet" href="/styles.css">${whiteboard ? '<link rel="stylesheet" href="/whiteboard-fixture/whiteboard-entry.css">' : ""}</head><body><div id="root"></div><script type="module" src="${whiteboard ? "/whiteboard-fixture/whiteboard-entry.js" : "/bundle.js"}"></script></body></html>`);
     return;
   }
   if (await handleBoardFixture(request, response, url)) return;
+  if (await handleWhiteboardFixture(request, response, url)) return;
   const actor = actors[Number(url.searchParams.get("actor") ?? 0)];
   if (!actor) { json(response, { error: "Invalid fixture actor" }, 400); return; }
   const state = sessionState(url.searchParams.get("session") ?? "default");

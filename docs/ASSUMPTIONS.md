@@ -46,7 +46,12 @@ Feature code decides which explicit partner events are notification-worthy.
 User controls quiet hours and lock-screen detail.
 Default content is privacy-preserving generic copy.
 
+## Whiteboard
+
+Whiteboard domain (2026-10-02): both active House members may edit the shared canvas, as Phase 3 M2 specifies. A House has one canvas; reads of an unused canvas return virtual version zero. Saves are explicit; drafts persist automatically. A conflict never auto-merges a canvas. Eraser deletion flags remain in snapshots. No image/remote embed, public room, realtime or permanent purge is added. Scene format and library version are pinned and reviewed together.
+
 ## Weather/location
+
 Home may use user-selected location to decorate weather/time context.
 
 Rules:

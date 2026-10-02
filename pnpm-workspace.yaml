@@ -1,5 +1,7 @@
 packages:
   - .
+overrides:
+  '@excalidraw/excalidraw>@radix-ui/react-tabs': 1.1.21
 allowBuilds:
   sharp: true
   esbuild: true

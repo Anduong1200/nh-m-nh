@@ -1,0 +1,18 @@
+.whiteboard-panel { position:fixed; inset:0; z-index:100; display:flex; flex-direction:column; background:var(--paper,#f4f1e8); color:var(--forest,#243e30); }
+.whiteboard-toolbar { display:flex; flex-wrap:wrap; gap:6px; padding:10px; flex:none; }
+.whiteboard-panel button { min-width:44px; min-height:44px; border:1px solid currentColor; border-radius:8px; padding:6px 12px; background:var(--paper,#f4f1e8); color:var(--forest,#243e30); font:inherit; cursor:pointer; }
+.whiteboard-panel button:focus-visible { outline:3px solid #aa783e; outline-offset:2px; }
+.whiteboard-panel button:disabled { opacity:.55; cursor:default; }
+.whiteboard-status { margin:0; padding:4px 12px; font-size:14px; flex:none; }
+.whiteboard-conflict { display:flex; flex-wrap:wrap; gap:6px; padding:8px 12px; border-block:1px solid currentColor; flex:none; }
+.whiteboard-conflict p { margin:0; width:100%; }
+.whiteboard-canvas { flex:1; min-height:140px; touch-action:none; }
+.whiteboard-canvas .excalidraw .layer-ui__wrapper { --color-primary:#243e30; --color-primary-darker:#1a2d23; }
+/* SDK 0.18.1: expose V1 tools through the host toolbar; keep native canvas/undo/zoom. */
+.whiteboard-canvas .excalidraw .App-toolbar,
+.whiteboard-canvas .excalidraw .default-sidebar-trigger,
+.whiteboard-canvas .excalidraw .sidebar-trigger__label-element,
+.whiteboard-canvas .excalidraw .sidebar,
+.whiteboard-canvas .excalidraw .mobile-misc-tools-container,
+.whiteboard-canvas .excalidraw .App-menu__left { display:none; }
+@media (max-width:600px) { .whiteboard-toolbar { padding:6px; gap:4px; } .whiteboard-panel button { font-size:12px; padding:5px 8px; } }

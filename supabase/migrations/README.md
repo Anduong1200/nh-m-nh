@@ -1,5 +1,7 @@
 # Supabase migrations
 
+Whiteboard: `20261002020000_whiteboard_snapshots.sql` is additive and enables RLS at table creation. Both members save through one versioned RPC; clients cannot write tables directly. Existing hardened Phase 2/Board projects may use generated `../install-whiteboard.sql` once. Keep applied migrations immutable; do not use the fresh-project setup on an existing House.
+
 Board domain adds `20261002010000_board_domain.sql`: shared edit rights, creator-only trash/restore, optimistic versions, immutable retry receipts, and same-House private media references. Client writes use only `apply_board_operation`; old Board write RPC grants are revoked. Existing projects use the guarded transactional `../install-board-domain.sql` (Board absent) or `../upgrade-board-domain.sql` (legacy Board present). Regenerate with `node scripts/generate-board-upgrade.mjs`. No remote schema is modified by generation. Read [the contract and verification limits](../../docs/BOARD_DOMAIN.md) before UI integration or deployment.
 
 The bootstrap creates no SQL tables, policies, buckets, or user data. Add schema only with the feature that needs it and its authorization tests. No remote Supabase project is configured or changed by the bootstrap.

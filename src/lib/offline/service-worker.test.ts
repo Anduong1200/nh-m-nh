@@ -56,6 +56,19 @@ function harness() {
 }
 
 describe("public service-worker caching boundary", () => {
+  it("caches only versioned public Whiteboard font assets without session cookies", async () => {
+    const worker = harness();
+    const path = "/vendor/excalidraw-0.18.1/fonts/Excalifont/Excalifont-Regular-a88b72a24fb54c9f94e3b5fdaa7481c9.woff2";
+    worker.fetchMock.mockResolvedValue(new Response("public font", { headers: { "cache-control": "public, max-age=31536000, immutable", "content-type": "font/woff2" } }));
+    await worker.dispatchFetch(path);
+    await worker.dispatchFetch(path);
+    expect(worker.fetchMock).toHaveBeenCalledTimes(1);
+    expect(worker.fetchMock.mock.calls[0]?.[0].credentials).toBe("omit");
+    expect(worker.dispatchFetch(path + "?private=1")).toBeUndefined();
+    expect(worker.dispatchFetch("/vendor/excalidraw-0.18.1/media/private-photo.png")).toBeUndefined();
+    expect(worker.dispatchFetch(path, { headers: { authorization: "Bearer private" } })).toBeUndefined();
+    expect(worker.content.get("nha-minh-public-assets-v2")?.size).toBe(1);
+  });
   it("does not intercept APIs, private media, Supabase, cross-origin assets or RSC responses", () => {
     const worker = harness();
     for (const path of ["/api/board", "/letters/private", "/storage/private/file", "https://project.supabase.co/rest/v1/notes", "https://other.example/_next/static/chunk.js"]) {
@@ -79,7 +92,7 @@ describe("public service-worker caching boundary", () => {
     expect(await second?.text()).toBe("public asset");
     expect(worker.fetchMock).toHaveBeenCalledTimes(1);
     expect(worker.fetchMock.mock.calls[0]?.[0].credentials).toBe("omit");
-    expect(worker.content.get("nha-minh-public-assets-v1")?.size).toBe(1);
+    expect(worker.content.get("nha-minh-public-assets-v2")?.size).toBe(1);
   });
 
   it.each([
@@ -94,7 +107,7 @@ describe("public service-worker caching boundary", () => {
     const worker = harness();
     worker.fetchMock.mockResolvedValue(new Response("sensitive", { headers }));
     await worker.dispatchFetch("/_next/static/not-safe.js");
-    expect(worker.content.get("nha-minh-public-assets-v1")?.size).toBe(0);
+    expect(worker.content.get("nha-minh-public-assets-v2")?.size).toBe(0);
   });
 
   it("serves a public offline fallback without persisting authenticated navigations", async () => {
