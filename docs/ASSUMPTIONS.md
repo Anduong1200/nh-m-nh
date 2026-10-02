@@ -50,6 +50,8 @@ Default content is privacy-preserving generic copy.
 
 Whiteboard domain (2026-10-02): both active House members may edit the shared canvas, as Phase 3 M2 specifies. A House has one canvas; reads of an unused canvas return virtual version zero. Saves are explicit; drafts persist automatically. A conflict never auto-merges a canvas. Eraser deletion flags remain in snapshots. No image/remote embed, public room, realtime or permanent purge is added. Scene format and library version are pinned and reviewed together.
 
+Games domain (2026-10-02): creator goes first; sessions require exactly two active members and retain fixed player seats. Doodle Relay defaults to six contributions and One-line Story to eight (both configurable 2–12). Draw & Guess uses one drawing and up to three exact case-sensitive guesses, then reveals its answer. Photo Mission uses the canonical immediate shared-reveal mode with one owned ready House photo per player; sealed-until-both-submit media is not implemented. There is no abandonment deadline, notification sender, deletion API, scoring or automatic memory promotion. The current assignment covers domain/persistence/offline; production UI is a separate integration. These choices follow existing V1 scope and preserve existing House/media authorization.
+
 ## Weather/location
 
 Home may use user-selected location to decorate weather/time context.

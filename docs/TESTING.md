@@ -74,3 +74,5 @@ Report:
 - command;
 - pass/fail;
 - skipped reason.
+
+Games combine bounded state-machine unit tests, authenticated-action tests, real PostgreSQL/PGlite policies/RPCs and browser IndexedDB/HTTP-fixture flows for all four V1 games. Conflicts, exact retries, answer secrecy, photo ownership and logout/reconnect are covered. PGlite serializes transactions; independent connection lock stress and hosted media/Auth acceptance remain separate. See [Games verification](GAMES_DOMAIN.md#verification-boundaries). On constrained Windows development machines, `pnpm test --maxWorkers=2` bounds parallel PostgreSQL workers without skipping tests.

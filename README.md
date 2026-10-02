@@ -78,6 +78,8 @@ Update 2026-10-02: all local Home, Presence/Knock, Board and Whiteboard workstre
 
 ## Local development
 
+Phase 4 Games domain: [contracts and UI handoff](docs/GAMES_DOMAIN.md) cover the four async games, generic sessions/events/turns/players/artifacts, transactional RLS/turn validation, exact retries and durable offline/reconnect. Production game screens and hosted schema installation remain integration steps.
+
 Use Node.js 22.12+ on the 22 LTS line (or Node 24 LTS) and pnpm 11.25.0. Install pnpm with Corepack where available (`corepack enable`, then `corepack prepare pnpm@11.25.0 --activate`) or the official pnpm installer.
 
 ```sh

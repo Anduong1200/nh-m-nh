@@ -108,6 +108,10 @@ Scheduled letters must store an unambiguous instant plus relevant user-facing ti
 
 Whiteboard V1 uses a browser-only Excalidraw adapter and versioned Supabase snapshots. The existing account/House-bound IndexedDB store retains drafts and immutable pending operations; explicit full-scene conflict decisions prevent silent replacement. See [ADR 002](ADR/002-whiteboard-library-and-snapshot-sync.md) and [Whiteboard integration](WHITEBOARD_DOMAIN.md).
 
+## Games
+
+The four V1 games share authorized sessions, two fixed players, ordered immutable events and completion artifacts. Transactional RPCs enforce turns and exact replay receipts; answers have separate owner/reveal access. Account/House-bound IndexedDB drafts and versioned queued proposals preserve conflicts on reconnect. See [Games domain](GAMES_DOMAIN.md) for contracts and UI integration. Games do not require realtime or change private-media permissions.
+
 ## Media
 
 Private storage only.

@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 
-export type OfflineContentKind = "note" | "doodle" | "whiteboard";
+export type OfflineContentKind = "note" | "doodle" | "whiteboard" | "game";
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 export interface OfflineDraft {
@@ -231,12 +231,16 @@ export class AccountOfflineStore {
     return { status: "saved", draft };
   }
 
-  async enqueue(input: OperationInput): Promise<QueuedOperation> {
+  async enqueue(input: OperationInput, exclusiveEntity = false): Promise<QueuedOperation> {
     validateId(input.entityId, "Entity ID");
     validateId(input.houseId, "House ID");
     if (input.mutation === "update") validateVersion(input.baseVersion);
     const { tx, store } = await this.writeStore("operations");
     const previous = await store.index("by-account").getAll(this.accountId);
+    if (exclusiveEntity && previous.some(row => row.houseId === input.houseId && row.entity === input.entity && row.entityId === input.entityId)) {
+      await tx.done;
+      throw new Error("This entity already has a pending operation or preserved conflict.");
+    }
     const sequence = previous.reduce((max, row) => Math.max(max, row.sequence ?? 0), 0) + 1;
     const operation: QueuedOperation = {
       accountId: this.accountId,

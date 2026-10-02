@@ -159,6 +159,8 @@ One Whiteboard per active House. Both members edit; clients have SELECT only wit
 
 Prefer event/turn validation server-side.
 
+Implemented V1 Games: sessions contain fixed creator/partner seats, version, phase and current turn; append-only events have unique session/sequence and operation UUID. `game_players` binds participants, `game_answers` separately protects Draw & Guess answers, `game_artifacts` preserves completed sequences, and actor-private `game_operations` stores exact request/receipt replay. All six tables have RLS and no direct authenticated mutation grants. Turns are projected from the session, not another independently writable table. See [Games domain](GAMES_DOMAIN.md).
+
 ## Letters
 
 ### letters

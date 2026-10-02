@@ -31,3 +31,5 @@ Before exposing a table through the Supabase API:
 Once migrations exist, provision the local Supabase CLI configuration as part of that feature, apply from a clean local database, and run its database integration/RLS tests before deployment. Review the migration separately from application code. Do not use the Supabase Dashboard as the untracked source of schema changes.
 
 Destructive changes require an ADR, explicit approval, and a backup/rollback plan before execution, as required by `AGENTS.md`, `docs/SECURITY.md`, and `skills/database/SKILL.md`. Do not add reset/drop commands to routine CI or bootstrap scripts.
+
+Games V1: apply `20261002030000_game_domain.sql` after the hardened Board/media domain. `../install-games.sql` is its generated guarded additive installer, not another migration. It adds six RLS-protected tables and transactional session/read/write RPCs; no Storage policy or existing-data mutation is included. Regenerate with `node scripts/generate-game-install.mjs`. See [Games contract and verification](../../docs/GAMES_DOMAIN.md).

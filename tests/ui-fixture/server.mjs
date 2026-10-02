@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { build } from "esbuild";
 import { handleBoardFixture } from "./board-server.mjs";
 import { handleWhiteboardFixture } from "./whiteboard-server.mjs";
+const gameServerBundle = await build({entryPoints:["tests/ui-fixture/game-engine.ts"],bundle:true,write:false,format:"esm",platform:"node",target:"node22"});
+const {handleGameFixture} = await import("data:text/javascript;base64,"+Buffer.from(gameServerBundle.outputFiles[0].text).toString("base64"));
+const gameBrowserBundle = await build({entryPoints:["tests/ui-fixture/game-entry.ts"],bundle:true,write:false,format:"esm",platform:"browser"});
 
 const bundle = await build({ entryPoints: ["tests/ui-fixture/entry.tsx"], bundle: true, write: false, format: "esm", platform: "browser", jsx: "automatic", define: { "process.env.NODE_ENV": '"production"' },
   // Phase 2 fixture never imports real server actions or Supabase into its browser bundle.
@@ -42,6 +45,9 @@ function json(response, value, status = 200) {
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
+  if (await handleGameFixture(request,response,url)) return;
+  if (url.pathname === "/game-bundle.js") {response.writeHead(200,{"Content-Type":"text/javascript"});response.end(gameBrowserBundle.outputFiles[0].text);return;}
+  if (url.searchParams.get("games") === "1") {response.writeHead(200,{"Content-Type":"text/html","Cache-Control":"no-store"});response.end('<!doctype html><html lang="vi"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Games domain fixture</title><body><script type="module" src="/game-bundle.js"></script></body></html>');return;}
   if (url.pathname.startsWith("/whiteboard-fixture/")) {
     const name = url.pathname.split("/").at(-1), file = whiteboardFiles.get(name);
     if (!file) { response.writeHead(404); response.end(); return; }
