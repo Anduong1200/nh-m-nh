@@ -54,6 +54,8 @@ Games domain (2026-10-02): creator goes first; sessions require exactly two acti
 
 Island domain (2026-10-02): rules version 1 exposes monotonic history evidence flags and counters without inventing numeric levels or unlock thresholds. Photo Mission records both completion categories but one history item. Weekly activity means at least one server-completed game in a UTC Monday-based week; absence never changes state. Memory/Milestone contracts remain reserved until their own domains validate persisted sources, including explicit Memory confirmation. Existing House read permissions remain in force, including an empty Island for an owner awaiting pairing. Frontend composition/offline screen integration stays separate.
 
+Letters core (2026-10-03): user explicitly chose both online in the same session for joint opening, replacing an async acknowledgement proposal. The author keeps their own copy; recipients see envelope/clue only after delivery and bodies only after explicit opening. Ordinary open times/state are private to the recipient; joint reveal is a shared explicit interaction. Defaults: 120-second session, heartbeat every 5 seconds, 15-second presence freshness; stale readiness resets. Sends are immutable, text-only, at most 2,000 codepoints with an 80-character clue. Minute-precision wall scheduling supports 2000–2100, with explicit DST overlap selection, UTC persistence and DB-clock eligibility. No letter deletion/reschedule, offline send/open, notification worker or conditional Open When is added. Production visual UI integration remains separate.
+
 ## Weather/location
 
 Home may use user-selected location to decorate weather/time context.

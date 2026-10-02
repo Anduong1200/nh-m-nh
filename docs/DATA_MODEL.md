@@ -177,6 +177,8 @@ Implemented V1 Games: sessions contain fixed creator/partner seats, version, pha
 - created_at
 - opened_at
 
+Letters core implements immutable `letters` envelopes with fixed sender/recipient, UTC delivery, IANA timezone and original wall time. Sensitive `letter_contents`, recipient-private `letter_openings`, actor-private `letter_operations` and internal `letter_reveal_sessions`/`letter_reveal_participants` are separate RLS-enabled tables. State/version/body availability is projected per actor; clients cannot mutate it. Joint opening uses a 120-second session, 5-second heartbeat and 15-second freshness checks. See [Letters core](LETTERS_DOMAIN.md).
+
 ## Island
 
 ### island_state

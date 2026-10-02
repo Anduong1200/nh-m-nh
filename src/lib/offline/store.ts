@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 
-export type OfflineContentKind = "note" | "doodle" | "whiteboard" | "game";
+export type OfflineContentKind = "note" | "doodle" | "whiteboard" | "game" | "letter";
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 export interface OfflineDraft {

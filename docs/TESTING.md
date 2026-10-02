@@ -66,6 +66,8 @@ Priority:
 
 ## Completion
 
+Letters browser tests execute actual PostgreSQL/PGlite RPCs/RLS via a separate test-only HTTP process, while auth identities and due/stale/expiry controls are explicit fixture shims. They verify sealed payload absence, scheduled eligibility, live joint consent, expired sessions, reconnect and logout/draft persistence in three browser projects. Unit/integration tests also check DST, actor projections, permission denial and transactional opening rollback. This is not hosted Supabase/Auth or independent-connection concurrency coverage. See [Letters verification](LETTERS_DOMAIN.md#install-and-verification).
+
 Island tests execute the real SQL ledger/view/trigger and guarded installer under PostgreSQL/PGlite roles. They check source-derived completion, transactional failure rollback, retry/backfill deduplication, UTC weekly boundaries, cross-House/anonymous/inactive access, forbidden writes and SQL/TypeScript projection parity. Browser regression covers Games as the active producer; production Island UI, hosted migration/Auth and independent-connection stress remain separate. See [Island verification](ISLAND_DOMAIN.md#verification).
 
 Board domain tests and the simulated browser transport are documented in [BOARD_DOMAIN.md](BOARD_DOMAIN.md#verification-boundaries). SQL tests run the real migration chain under PostgreSQL roles; browser tests run real IndexedDB/sync with separate simulated HTTP data. Both are required; neither claims hosted Storage/Auth or independent connection concurrency coverage. The Home palette test waits for CSS transitions before asserting final contrast, retaining the original accessibility threshold.

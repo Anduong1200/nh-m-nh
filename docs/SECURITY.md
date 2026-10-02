@@ -113,6 +113,8 @@ Irreversible delete actions:
 
 ## Tests required
 
+Letters prevent recipient access to scheduled envelopes/clues and sealed bodies at DB/RPC level. Separate ordinary opening truth avoids default sender read receipts. Joint reveal is explicitly opt-in and requires both original participants with fresh presence/consent in one session. Heartbeat tables are inaccessible to application roles; no global online history is exposed. Exact retry operations are actor-private; offline caches contain only previously authorized DTOs and use logout epoch invalidation. See [Letters security](LETTERS_DOMAIN.md#persistence-and-privacy).
+
 Island uses a read-only invoker projection over House/event RLS. Application roles cannot write the ledger/view or execute internal completion emitters. Game completion events are generated atomically from same-House persisted artifacts; no sensitive artifact body is copied. Memory/Milestone contracts have no client-callable emitter. See [Island authorization and verification](ISLAND_DOMAIN.md).
 
 Games use House-authorized transactional commands, immutable player seats/event sequences and actor-private replay receipts. Draw & Guess answers are inaccessible to the guesser through tables, RPC projections and cached receipts until completion. Photo Mission accepts only owned ready House photos and uses immediate shared reveal without changing Storage permissions. Offline drafts/queues retain account/House bindings and logout generation barriers. See [Games domain](GAMES_DOMAIN.md) for authorization and test boundaries.

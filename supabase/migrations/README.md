@@ -1,5 +1,7 @@
 # Supabase migrations
 
+Letters: `20261002050000_letters_core.sql` adds six RLS-enabled tables and transactional RPCs for immutable sends, time-gated content and same-session joint opening. Only hardened House is required. `../install-letters.sql` is its guarded atomic equivalent for existing projects; no user data is deleted. Read [Letters core](../../docs/LETTERS_DOMAIN.md) before UI integration or hosted installation.
+
 Island: `20261002040000_island_event_projection.sql` adds an RLS-protected immutable application ledger, an invoker aggregate view and an internal game-artifact trigger. `../install-island.sql` is the guarded transaction for existing hardened House/Games projects. Completion/backfill is source-derived and idempotent; no client event or level-write API exists. See [Island domain](../../docs/ISLAND_DOMAIN.md).
 
 Whiteboard: `20261002020000_whiteboard_snapshots.sql` is additive and enables RLS at table creation. Both members save through one versioned RPC; clients cannot write tables directly. Existing hardened Phase 2/Board projects may use generated `../install-whiteboard.sql` once. Keep applied migrations immutable; do not use the fresh-project setup on an existing House.
