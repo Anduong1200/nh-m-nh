@@ -115,6 +115,13 @@ Both House members edit; only the creator trashes/restores. Ledger SELECT is act
 
 ## Whiteboard
 
+Ready photo registration is server-only: `register_verified_photo` requires a
+confirmed private Storage object and an active paired House under locks. The
+`nha-minh-private` bucket accepts bounded JPEG output; RLS grants only active
+House reads of ready photo metadata, with restrictive guards against broad
+project policies. No client metadata/upload/update/delete authority is added.
+See [ADR 003](ADR/003-private-photo-pipeline.md).
+
 ### whiteboards
 - id
 - house_id

@@ -1,10 +1,10 @@
 # Games domain — Codex / Phase 4
 
-Implemented on `feature/games-domain`, integrated into `main`. Scope: the four V1 games, async first. This delivers domain/server/database/offline and a browser test harness. Production Home/game screens and drawing/photo-upload UI need integration. No XP, leaderboard, automatic memory promotion, notification sender, realtime requirement or deletion API is added.
+Implemented on `feature/games-domain`, with production UI integrated on 2026-10-03. Scope: the four V1 games, async first. The protected `/games` route uses the existing domain/server/database/offline contracts; Excalidraw captures bounded pen contributions, and Photo Mission uses the private photo pipeline in [ADR 003](ADR/003-private-photo-pipeline.md). No XP, leaderboard, automatic memory promotion, notification sender, realtime requirement or deletion API is added. Current integration results and release gates are in [V1 integration review](V1_INTEGRATION_REVIEW.md); older verification below records the domain-only baseline.
 
 ## Generic contract
 
-`src/modules/games/model.ts` exports `GameSession`, `GameEvent`, `Turn`, `Player`, `Artifact`, `GameCommand`, `GameReceipt`, `GameContext` and bounded parsers. Each session permanently binds to a House and two players; creator is seat 0 and partner seat 1. Turns derive from the authoritative session/event sequence, not a separately mutable table. Version starts at 1 and is event count + 1. Completion produces one immutable artifact; it does not promote a memory or grow the Island automatically.
+`src/modules/games/model.ts` exports `GameSession`, `GameEvent`, `Turn`, `Player`, `Artifact`, `GameCommand`, `GameReceipt`, `GameContext` and bounded parsers. Each session permanently binds to a House and two players; creator is seat 0 and partner seat 1. Turns derive from the authoritative session/event sequence, not a separately mutable table. Version starts at 1 and is event count + 1. Completion produces one immutable artifact and trusted Island events in the same transaction after the Island migration; it never promotes a permanent Memory automatically.
 
 Client-generated session IDs allow offline creation. Create has expectedVersion 0; moves carry the last authoritative version. Every command has a client operation UUID and exact request. A successful move increments once and never replaces an earlier contribution. An exact retry returns its original receipt even after later turns; a changed request needs a new operation UUID. Authorization is checked again on replay.
 
@@ -19,7 +19,7 @@ Client-generated session IDs allow offline creation. Create has expectedVersion 
 
 Draw & Guess takes a custom answer in creation's `payload.prompt`; public prompt is empty. `game_answers` is separately protected: the drawer can read their answer; the guesser cannot until completion. Server snapshots and operation receipts follow this boundary. Matching uses exact case-sensitive text after trimming ordinary spaces. The UI should explain this rule. A prompt pack can supply a chosen answer without adding another service/table.
 
-Photo Mission uses the spec's immediate shared-reveal mode. Each reference must be an owned, ready `media_objects` row in this House with type `photo`, never a URL. Both members discover each contribution immediately. Existing media is House-shared; this work does not offer secret-until-both-submit photos or alter Storage permissions. A sealed mode needs a separately authorized media lifecycle. Pending/uploading media cannot be submitted yet; upload and signed access UI remain media integration work.
+Photo Mission uses the spec's immediate shared-reveal mode. Each reference must be an owned, ready `media_objects` row in this House with type `photo`, never a URL. Both members discover each contribution immediately. Ready media is House-shared, including a chosen uploaded photo before its turn is submitted. A sealed mode needs a separately authorized media lifecycle. Pending/uploading media cannot be submitted. The validated server upload and no-store authorized image endpoint are documented in [ADR 003](ADR/003-private-photo-pipeline.md).
 
 Doodles reuse Board's schema-1 stroke codec: bounded pen color, width and points. Each contribution is nonempty, at most 64 KiB (SQL also enforces a conservative jsonb serialized-size limit), with no remote URL or SVG. There is no custom canvas engine: UI may adapt the established Excalidraw tools. Erasing/replacing earlier partner strokes is not a relay move. Story lines have at most 500 Unicode characters and no line breaks/control characters; answers/guesses have at most 100; captions have at most 500.
 
@@ -48,7 +48,7 @@ const detach = sync.watchReconnect(sessionId, (remote, report) => {
 // Account/House change or unmount: detach(); sync.stop(); store.close();
 ```
 
-Await durable queue success before saying a turn is pending; use the authoritative turn/version. A local optimistic transition is not authorization, particularly when the guesser does not know the answer. UI must provide loading/error/empty/conflict/recovery states and accessible game controls. The harness is not a production route; Home's game box remains inactive until that UI is wired.
+Await durable queue success before saying a turn is pending; use the authoritative turn/version. A local optimistic transition is not authorization, particularly when the guesser does not know the answer. `GamesWorkspace` supplies production loading/error/empty/conflict/recovery states and account-bound drafts. Home links to `/games`; `/games?session=UUID` authorizes a specific artifact even outside the latest-20-session list. The isolated browser harness remains test-only.
 
 ## Database / RLS / races
 
@@ -63,6 +63,7 @@ Generated `supabase/install-games.sql` is a guarded transactional additive insta
 `GameSyncSession` reuses account-scoped IndexedDB and the persistent logout epoch. New `game` content uses the existing draft/recent/operation stores without changing IndexedDB schema. Recent content is bounded across all kinds to 50 records/account and seven days; drafts/queued work do not expire silently. V1 IndexedDB remains plaintext on this device. Private HTML is not service-worker cached.
 
 - `saveDraft(sessionId, payload, expectedLocalVersion)` uses local CAS. Remote refresh never writes this draft.
+- `GamesWorkspace` saves input immediately and flushes before navigation or adopting a new remote turn. An unsent contribution from an older turn is copied to an immutable account/House-bound recovery draft before the editor's local key can be reused. The UI previews/exports that recovery; a failed recovery write or local CAS keeps the old data and unsaved buffer. A draft exactly matched by the actor's committed event does not appear as an unsent recovery.
 - `queue(proposal)` persists one immutable pending operation/session. A single IndexedDB transaction prevents two tabs queueing competing proposals.
 - `drain()` coalesces calls and retries exact IDs. Only matching actor/House/request receipts acknowledge work. Conflicts never rebase automatically.
 - `watchReconnect()` drains/refreshes on online/focus/visible and retains another refresh if reconnect arrives during a running refresh. Dispose/stop on verified-context changes.
@@ -76,7 +77,7 @@ Realtime is optional. The current generic offline-shell fallback remains: a cold
 
 Unit tests cover codecs and state-machine guards; action tests cover verified context and answer projection. PGlite executes real migrations, grants, RLS, RPCs, media validation, exact replay and expected-version contenders. Transactions/connections are serialized there: this does not replace an independent multi-connection PostgreSQL lock stress test.
 
-Playwright uses real browser IndexedDB/sync with a simulated HTTP game store, covering all four happy paths, offline draft/queue reload, reconnect, conflict retention and logout across desktop Chromium, iPhone-class WebKit and Android Chromium. Fixture photo references/auth are simulated; SQL validates actual ownership separately. Hosted Supabase Auth/Storage, physical installed PWAs, cold private offline launch and production Games UI require integration acceptance.
+Playwright uses the production Games UI and real browser IndexedDB/sync with a simulated HTTP game store, covering all four happy paths, offline draft/queue reload, reconnect, conflict retention, second-device turn advancement and logout across desktop Chromium, iPhone-class WebKit and Android Chromium. Fixture photo references/auth are simulated; SQL validates actual ownership separately. Hosted Supabase Auth/Storage, physical installed PWAs and cold private offline launch remain acceptance boundaries.
 
 ## Validation record — 2026-10-02
 

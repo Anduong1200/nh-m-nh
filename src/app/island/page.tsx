@@ -1,22 +1,31 @@
-"use client";
+import { redirect } from "next/navigation";
+import { getVerifiedUser } from "@/modules/auth/server";
+import { getSupabasePublicConfiguration } from "@/lib/env";
+import { getMyHouse, HouseLoadError } from "@/modules/houses/server";
+import { readIslandStateAction } from "@/modules/island/actions";
+import { listGameSessionsAction } from "@/modules/games/actions";
+import { parseIslandView } from "@/modules/island/client";
+import { HouseUnavailable } from "../house/house-unavailable";
+import { IslandWorkspace } from "./workspace";
 
-import { SharedIsland, type MemoryPoint } from "@/components/phase4/shared-island";
+export const dynamic = "force-dynamic";
+export const metadata = { title: "Hòn đảo của hai đứa · Nhà Mình" };
 
-const DEMO_MEMORIES: MemoryPoint[] = [
-  { id: "m1", label: "Lần đầu ghép Nhà", x: 48, y: 48, icon: "🏠", date: "2026-09-30", unlocked: true },
-  { id: "m2", label: "Bức tranh đầu tiên", x: 30, y: 58, icon: "🎨", date: "2026-10-01", unlocked: true },
-  { id: "m3", label: "Câu chuyện kỳ lạ", x: 65, y: 55, icon: "📝", date: "2026-10-02", unlocked: true },
-  { id: "m4", label: "Ảnh trời chiều", x: 72, y: 40, icon: "📸", unlocked: false },
-  { id: "m5", label: "Bí mật nhỏ", x: 25, y: 40, icon: "✨", unlocked: false },
-];
-
-export default function IslandPreviewPage() {
-  return (
-    <SharedIsland
-      memories={DEMO_MEMORIES}
-      onAreaClick={(area) => console.log("area:", area)}
-      onMemoryClick={(mem) => console.log("memory:", mem)}
-      onClose={() => window.history.back()}
-    />
-  );
+export default async function IslandPage() {
+  if (!getSupabasePublicConfiguration()) redirect("/auth/sign-in");
+  const user = await getVerifiedUser();
+  if (!user) redirect("/auth/sign-in");
+  let house;
+  try { house = await getMyHouse(); }
+  catch (error) { if (!(error instanceof HouseLoadError)) throw error; return <HouseUnavailable />; }
+  if (!house) redirect("/house/setup");
+  if (house.members.length !== 2) redirect("/house");
+  const context = { accountId: user.id, houseId: house.id };
+  const [projection, games] = await Promise.all([readIslandStateAction(context), listGameSessionsAction(context)]);
+  const changedContext = [projection.context, games.context].some(reply => reply && (reply.accountId !== context.accountId || reply.houseId !== context.houseId));
+  if (projection.blocked || games.blocked || changedContext) return <main id="main-content" className="state-page"><div className="state-paper" role="alert"><h1>Cần xác nhận lại quyền vào Nhà.</h1><a href="/house">Về Nhà</a></div></main>;
+  const initialView = projection.context?.accountId === user.id && projection.context.houseId === house.id && games.context?.accountId === user.id && games.context.houseId === house.id
+    ? parseIslandView({ state: projection.state, artifacts: games.sessions?.filter(session => session.status === "completed") }, context)
+    : null;
+  return <IslandWorkspace key={`${context.accountId}:${context.houseId}`} context={context} initialView={initialView} initialError={initialView ? null : "Chưa tải được lịch sử Đảo. Bạn có thể thử lại."} />;
 }

@@ -43,3 +43,10 @@ it("blocks premature answer in a guesser's projection",async () => {
   m.user.mockResolvedValue({id:gameActors[1]});m.rpc.mockResolvedValue({data:privateSnapshot,error:null});
   expect((await readGameSessionAction(draw.sessionId,{...context,accountId:gameActors[1]})).snapshot).toBeUndefined();
 });
+it("validates every listed projection and verifies request identity once",async () => {
+  m.list.mockResolvedValue({data:[{id:c.sessionId},{id:crypto.randomUUID()}],error:null});
+  expect((await listGameSessionsAction(context)).sessions).toBeUndefined();
+  expect(m.user).toHaveBeenCalledOnce(); expect(m.house).toHaveBeenCalledOnce();
+  m.rpc.mockResolvedValue({data:null,error:{code:"42501"}});
+  expect((await listGameSessionsAction(context)).blocked).toBe(true);
+});

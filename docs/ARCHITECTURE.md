@@ -77,7 +77,7 @@ Conflict:
 
 ## Realtime
 
-Board writes use an atomic operation ledger and immutable retry receipts, with creator-only trash/restore and shared edit rights. Note/doodle offline operations bind to the original account/House and preserve conflicts; a persistent IndexedDB epoch prevents late responses from repopulating data after logout in another tab. The domain requires adapting existing UI action calls and replacing the legacy coordinator before integration. See [Board domain](BOARD_DOMAIN.md) for schema, action and media-reference boundaries.
+Board writes use an atomic operation ledger and immutable retry receipts, with creator-only trash/restore and shared edit rights. Note/doodle offline operations bind to the original account/House and preserve conflicts; a persistent IndexedDB epoch prevents late responses from repopulating data after logout in another tab. The production Board UI uses this coordinator. See [Board domain](BOARD_DOMAIN.md) for schema, action and media-reference boundaries.
 
 Use realtime for:
 - fresh presence;
@@ -110,7 +110,7 @@ Whiteboard V1 uses a browser-only Excalidraw adapter and versioned Supabase snap
 
 ## Games
 
-The four V1 games share authorized sessions, two fixed players, ordered immutable events and completion artifacts. Transactional RPCs enforce turns and exact replay receipts; answers have separate owner/reveal access. Account/House-bound IndexedDB drafts and versioned queued proposals preserve conflicts on reconnect. See [Games domain](GAMES_DOMAIN.md) for contracts and UI integration. Games do not require realtime or change private-media permissions.
+The protected `/games` UI shares authorized sessions, two fixed players, ordered immutable events and completion artifacts. Transactional RPCs enforce turns and exact replay receipts; answers have separate owner/reveal access. Account/House-bound IndexedDB drafts and versioned queued proposals preserve conflicts on reconnect. Established Excalidraw tooling records new pen contributions without replacing partner strokes. See [Games domain](GAMES_DOMAIN.md); Games do not require realtime.
 
 ## Letters
 
@@ -125,3 +125,15 @@ Shared Island derives a read-only world projection from a House-private event le
 Private storage only.
 Do not trust user-provided filenames or MIME metadata without validation.
 Use bounded file size and duration.
+
+Photo Mission uses a server-only Supabase secret for fully decoded, normalized
+photo upload and one service-only metadata registration RPC. Reads use the
+requester's RLS client through a no-store same-origin endpoint. Restrictive
+Storage guards isolate the private bucket even alongside broad authenticated or
+anonymous policies on other buckets. See [ADR 003](ADR/003-private-photo-pipeline.md).
+
+## Integration ownership
+
+Codex reviews and integrates Gemini branches, then verifies the resulting tree.
+The required sequence and release gates are in [Integration ownership](INTEGRATION.md)
+and [V1 integration review](V1_INTEGRATION_REVIEW.md).

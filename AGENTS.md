@@ -400,6 +400,13 @@ Conventional Commits:
 
 Agents may commit when asked or when the environment expects autonomous task completion, but commits must be coherent and scoped.
 
+## Integration owner
+
+Codex owns integration at the end of every phase: review Gemini branches, resolve
+integration issues, merge, then run lint, typecheck, tests, production build and
+relevant E2E on the integrated tree. Record remaining release gates honestly.
+See `docs/INTEGRATION.md`. A UI prototype or green branch alone is not completion.
+
 ## Canonical references
 
 Before implementing significant work, read:

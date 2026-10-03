@@ -1,6 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
+import { createStorageSchema } from "../../../tests/fixtures/storage-schema";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { textScene } from "@/modules/whiteboard/test-fixtures";
 import { emptyWhiteboardScene, parseWhiteboardScene, type WhiteboardScene, type WhiteboardReceipt } from "@/modules/whiteboard/model";
@@ -75,6 +76,7 @@ describe("Supabase migrations and PostgreSQL House authorization", () => {
       grant usage on schema auth to anon, authenticated;
       grant execute on function auth.uid() to anon, authenticated;
     `);
+    await createStorageSchema(database);
     const directory = fileURLToPath(new URL("../../../supabase/migrations/", import.meta.url));
     const migrations = (await readdir(directory)).filter((name) => name.endsWith(".sql")).sort();
     for (const migration of migrations) {

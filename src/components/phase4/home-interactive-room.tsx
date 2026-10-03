@@ -6,6 +6,7 @@ import { MascotOwl, MascotRabbit } from "./mascots";
 export function HomeInteractiveRoom({
   statusesNode,
   knocksNode,
+  navigationNode,
   openBoard,
   openPresence,
   openSettings,
@@ -13,6 +14,7 @@ export function HomeInteractiveRoom({
 }: {
   statusesNode?: ReactNode;
   knocksNode?: ReactNode;
+  navigationNode?: ReactNode;
   openBoard: () => void;
   openPresence: MouseEventHandler<HTMLButtonElement>;
   openSettings: MouseEventHandler<HTMLButtonElement>;
@@ -88,6 +90,7 @@ export function HomeInteractiveRoom({
           <span aria-hidden="true" className="absolute bottom-6 left-6 w-16 h-16 bg-[#FFF9C4] p-3 shadow-sm -rotate-3" />
         </button>
 
+        {navigationNode}
         {/* Drawer / Desk (Presence & Statuses) */}
         <div className="relative bg-[var(--paper-raised)] border-t-2 border-[var(--scene-wood)] p-4 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
           <div aria-hidden="true" className="home-room-mascots flex items-end justify-between px-2 mb-4">

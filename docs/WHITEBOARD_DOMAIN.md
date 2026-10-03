@@ -2,6 +2,12 @@
 
 Integration baseline: main, including feature/whiteboard-domain through 929382b. Library: Excalidraw 0.18.1, with a React-19-compatible Radix Tabs override. Read [ADR 002](ADR/002-whiteboard-library-and-snapshot-sync.md) for the eight-criterion comparison, size methodology, licensing and design tradeoffs.
 
+Integration update 2026-10-03: Home now links to the protected `/whiteboard` route.
+Verified identity and a paired House are required before mounting the existing
+editor. Server actions and SQL reauthorize reads/saves; closing through the editor
+flushes the local draft before returning Home. Current acceptance status is in
+[V1 integration review](V1_INTEGRATION_REVIEW.md).
+
 ## Implemented contract
 
 - modules/whiteboard/model.ts: bounded native document codec, versions, context and receipt validation.

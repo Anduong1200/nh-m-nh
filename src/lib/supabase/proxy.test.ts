@@ -1,5 +1,7 @@
 import type { CookieOptions } from "@supabase/ssr";
 import { NextRequest } from "next/server";
+// The installed runtime retains this helper name for proxy matcher evaluation.
+import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -11,6 +13,7 @@ vi.mock("@supabase/ssr", () => ({
 }));
 
 import { updateSupabaseSession } from "./proxy";
+import { config } from "@/proxy";
 
 type Adapter = {
   getAll: () => { name: string; value: string }[];
@@ -37,6 +40,28 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("auth refresh proxy", () => {
+  it("refreshes every private room and photo route while excluding public assets", () => {
+    for (const url of ["/house", "/auth/callback", "/games?session=example", "/letters", "/island", "/whiteboard", "/media/example"]) {
+      expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url })).toBe(true);
+    }
+    for (const url of ["/", "/offline", "/sw.js", "/_next/static/chunk.js", "/vendor/excalidraw-0.18.1/fonts/font.woff2"]) {
+      expect(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url })).toBe(false);
+    }
+  });
+
+  it("persists photo-route refresh cookies without replacing its own denial response", async () => {
+    const request = new NextRequest("https://nha-minh.example/media/example");
+    mocks.getUser.mockImplementationOnce(async () => {
+      adapter().setAll([{ name: "auth-cookie", value: "refreshed", options: { path: "/", sameSite: "lax", secure: true } }]);
+      return { data: { user: null }, error: null };
+    });
+    const response = await updateSupabaseSession(request);
+    expect(request.cookies.get("auth-cookie")?.value).toBe("refreshed");
+    expect(response.cookies.get("auth-cookie")?.value).toBe("refreshed");
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("cache-control")).toContain("no-store");
+  });
+
   it("does not create a Supabase client for the unconfigured bootstrap", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "");

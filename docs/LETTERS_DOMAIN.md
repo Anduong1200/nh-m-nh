@@ -1,9 +1,14 @@
 # Letters core
 
 This workstream owns persistence, delivery/reveal rules, timezone resolution,
-authorization, retries and the client lifecycle. Production visual composition
-stays with the UI workstream. The existing UI prototype must consume these
-contracts rather than infer delivery/opening or preload sealed content.
+authorization, retries and the client lifecycle. The protected `/letters` UI is
+integrated on 2026-10-03 and consumes actor-specific DTOs and confirmed receipts.
+It never infers delivery/opening or preloads sealed recipient content. Mailbox
+reads show the latest 30 visible letters, with previously authorized offline
+recent content and local draft recovery; there is no pagination yet. Unknown
+send outcomes keep an immutable request for exact retry. A null read cannot prove
+a still-running send failed. See [the current integration review](V1_INTEGRATION_REVIEW.md)
+for final checks; older results below describe the core-only workstream.
 
 ## Accepted reading rules
 

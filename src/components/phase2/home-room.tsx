@@ -300,6 +300,9 @@ export function HomeRoom({
             {feedback && <p className="home-notice" role="status">{feedback}</p>}
 
             <HomeInteractiveRoom
+              navigationNode={<nav aria-label="Những góc trong Nhà" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {[["/whiteboard", "✎", "Bảng vẽ chung"], ["/games", "🎲", "Hộp trò chơi"], ["/letters", "✉", "Hòm thư"], ["/island", "🗺", "Đảo chung"]].map(([href, symbol, label]) => <a key={href} href={href} className="flex min-h-16 items-center gap-3 rounded-lg border border-[var(--line)] bg-[var(--paper-raised)] p-3 text-[var(--ink)] shadow-sm"><span aria-hidden="true" className="text-2xl">{symbol}</span><span className="font-semibold">{label}</span></a>)}
+              </nav>}
               openBoard={() => setOpenDialog("board")}
               openPresence={openPresence}
               openSettings={openSettings}

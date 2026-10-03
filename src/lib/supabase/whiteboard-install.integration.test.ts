@@ -1,5 +1,6 @@
 import { readFile,readdir } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
+import { createStorageSchema } from "../../../tests/fixtures/storage-schema";
 import { expect,it } from "vitest";
 import { textScene } from "@/modules/whiteboard/test-fixtures";
 // Git may check out SQL with CRLF; compare complete source text across platforms.
@@ -34,6 +35,7 @@ it("installs Whiteboard on populated Board without changing House/Board rows, an
 },30000);
 it("fresh-project generated setup contains and applies the complete canonical migration chain",async()=>{
  const db=await foundation();try{
+  await createStorageSchema(db);
   const setup=await readFile("supabase/setup-new-project.sql","utf8");
   for(const name of (await readdir("supabase/migrations")).filter(n=>n.endsWith(".sql")).sort())expect(canonicalSql(setup)).toContain(canonicalSql(await readFile("supabase/migrations/"+name,"utf8")));
   await db.exec(setup);

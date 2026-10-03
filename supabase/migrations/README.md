@@ -1,5 +1,13 @@
 # Supabase migrations
 
+Private photos: `20261003010000_private_photos.sql` adds the private bounded JPEG
+bucket, restrictive Storage guards and service-only verified registration. For
+an existing hardened House/Board project, use guarded `../install-media.sql`
+once, after reviewing existing Storage policies. This does not delete data or
+convert an existing public bucket. Generate with
+`node scripts/generate-media-install.mjs`; [ADR 003](../../docs/ADR/003-private-photo-pipeline.md)
+documents the server secret, permission boundary and hosted acceptance gate.
+
 Letters: `20261002050000_letters_core.sql` adds six RLS-enabled tables and transactional RPCs for immutable sends, time-gated content and same-session joint opening. Only hardened House is required. `../install-letters.sql` is its guarded atomic equivalent for existing projects; no user data is deleted. Read [Letters core](../../docs/LETTERS_DOMAIN.md) before UI integration or hosted installation.
 
 Island: `20261002040000_island_event_projection.sql` adds an RLS-protected immutable application ledger, an invoker aggregate view and an internal game-artifact trigger. `../install-island.sql` is the guarded transaction for existing hardened House/Games projects. Completion/backfill is source-derived and idempotent; no client event or level-write API exists. See [Island domain](../../docs/ISLAND_DOMAIN.md).

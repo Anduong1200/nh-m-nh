@@ -12,6 +12,15 @@ export async function handleLetterFixture(request: IncomingMessage, response: Se
   const context = { accountId: actor, houseId: actor === letterActors[0] || actor === letterActors[1] ? house : otherHouse };
   try {
     if (url.pathname === "/api/letters/context") { json(response, context); return true; }
+    if (url.pathname === "/api/letters/list") {
+      const ids = await letterAsUser<{ id: string }>(db, actor, "select id from public.letters where house_id=$1 order by deliver_at desc limit 30", [context.houseId]);
+      const letters = [];
+      for (const row of ids) {
+        const values = await letterAsUser<{ r: unknown }>(db, actor, "select public.get_letter($1,$2) r", [context.houseId, row.id]);
+        if (values[0]!.r !== null) letters.push(values[0]!.r);
+      }
+      json(response, { context, letters }); return true;
+    }
     if (url.pathname === "/api/letters/read") {
       const rows = await letterAsUser<{ r: unknown }>(db, actor, "select public.get_letter($1,$2) r", [context.houseId, url.searchParams.get("id")]);
       json(response, { context, letter: rows[0]!.r }); return true;

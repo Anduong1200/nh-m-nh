@@ -34,3 +34,8 @@ it("rejects invalid commands and premature body-bearing replies", async () => {
   m.rpc.mockResolvedValue({ data: { ...letterTestSnapshot(command), houseId: crypto.randomUUID() }, error: null });
   expect((await readLetterAction(command.letterId, context)).letter).toBeUndefined();
 });
+it("verifies identity once and closes a list if any projection is unauthorized", async () => {
+  const second = crypto.randomUUID(); m.list.mockResolvedValue({ data: [{ id: command.letterId }, { id: second }], error: null });
+  expect((await listLettersAction(context)).letters).toBeUndefined(); expect(m.user).toHaveBeenCalledOnce(); expect(m.house).toHaveBeenCalledOnce();
+  m.rpc.mockResolvedValue({ data: null, error: { code: "42501" } }); expect((await listLettersAction(context)).blocked).toBe(true);
+});

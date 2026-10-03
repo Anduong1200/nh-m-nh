@@ -59,6 +59,15 @@ Do not expose predictable invite IDs.
 - validate media type/size;
 - strip or avoid trusting metadata where practical.
 
+The private photo pipeline validates actual pixels, rejects animated/corrupt or
+oversize input, removes EXIF/GPS and serves normalized JPEG. Upload privilege is
+confined to a server-only secret after verified account/paired-House checks;
+registration rechecks membership under DB locks. Client metadata and Storage
+writes remain denied. Restrictive authenticated and anonymous policies prevent
+unrelated permissive policies from exposing this bucket. Image reads use the
+user's RLS client, generic fail-closed responses and no-store headers; service
+workers never cache private image responses. See [ADR 003](ADR/003-private-photo-pipeline.md).
+
 ## Secrets
 
 Never expose:

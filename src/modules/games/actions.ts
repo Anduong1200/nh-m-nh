@@ -46,9 +46,11 @@ export async function listGameSessionsAction(expectedContext: unknown): Promise<
     if (error || !data || data.some(row => !isUuid(row.id))) return {error:"Chưa tải được hộp trò chơi."};
     const sessions: GameSession[] = [];
     for (const row of data) {
-      const result = await readGameSessionAction(row.id,context);
-      if (!result.snapshot) return {error:"Chưa xác nhận được hộp trò chơi.",blocked:result.blocked === true};
-      sessions.push(result.snapshot);
+      // Identity is verified once for the request; every RPC still rechecks DB membership.
+      const {data: projection,error: readError} = await client.rpc("get_game_session",{p_house_id:context.houseId,p_session_id:row.id});
+      const snapshot = readError ? null : parseGameSession(projection);
+      if (!snapshot || snapshot.id !== row.id || snapshot.houseId !== context.houseId || !snapshot.players.some(p => p.userId === context.accountId) || snapshot.gameType === "draw-guess" && snapshot.status === "active" && snapshot.createdBy !== context.accountId && snapshot.answer !== null) return {error:"Chưa xác nhận được hộp trò chơi.",blocked:readError?.code === "42501" || readError?.code === "28000"};
+      sessions.push(snapshot);
     }
     return {context,sessions};
   } catch { return {error:"Chưa tải được hộp trò chơi."}; }

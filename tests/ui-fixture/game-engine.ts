@@ -18,6 +18,7 @@ export async function handleGameFixture(request: IncomingMessage,response: Serve
   if (!actor) {json(response,{blocked:true},403);return true;}
   const context = {accountId:actor,houseId:house};
   const sessions = rooms.get(scope) ?? new Map<string,GameSession>(); rooms.set(scope,sessions);
+  if (url.pathname === "/api/games/list") {json(response,{context,sessions:[...sessions.values()].map(state=>projection(state,actor))});return true;}
   if (url.pathname === "/api/games/read") {
     const state = sessions.get(url.searchParams.get("id") ?? "");json(response,state ? {context,snapshot:projection(state,actor)} : {error:"No game"});return true;
   }

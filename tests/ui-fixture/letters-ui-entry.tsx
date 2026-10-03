@@ -1,0 +1,10 @@
+import { createRoot } from "react-dom/client";
+import { LettersScreen } from "../../src/components/phase4/letters";
+import { clearAccountOfflineData } from "../../src/lib/offline/store";
+import type { LetterContext, Letter } from "../../src/modules/letters/model";
+const actor = new URLSearchParams(location.search).get("actor") ?? "0";
+const context: LetterContext = await (await fetch(`/api/letters/context?actor=${actor}`)).json();
+const initial: { letters?: Letter[]; error?: string } = await (await fetch(`/api/letters/list?actor=${actor}`)).json();
+const names = { [context.accountId]: actor === "0" ? "Thỏ" : "Cú" };
+Object.assign(window, { lettersUiHarness: { logout: () => clearAccountOfflineData(context.accountId) } });
+createRoot(document.getElementById("root")!).render(<LettersScreen context={context} initialLetters={initial.letters ?? []} names={names} initialError={initial.error ?? null} />);

@@ -59,9 +59,12 @@ export async function listLettersAction(expectedContext: unknown): Promise<{ con
     if (error || !data || data.some(row => !isUuid(row.id))) return { error: "Chưa tải được hòm thư." };
     const letters: Letter[] = [];
     for (const row of data) {
-      const result = await readLetterAction(row.id, context);
-      if (result.error || result.blocked) return { error: "Chưa xác nhận được hòm thư.", blocked: result.blocked === true };
-      if (result.letter) letters.push(result.letter);
+      // Avoid repeated network auth per envelope; the RPC rechecks current DB access.
+      const { data: projection, error: readError } = await client.rpc("get_letter", { p_house_id: context.houseId, p_letter_id: row.id });
+      if (!readError && projection === null) continue;
+      const letter = readError ? null : parseLetter(projection, context);
+      if (!letter || letter.id !== row.id) return { error: "Chưa xác nhận được hòm thư.", blocked: readError?.code === "42501" || readError?.code === "28000" };
+      letters.push(letter);
     }
     return { context, letters };
   } catch { return { error: "Chưa tải được hòm thư. Bạn có thể thử lại." }; }

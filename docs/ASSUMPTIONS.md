@@ -56,6 +56,18 @@ Island domain (2026-10-02): rules version 1 exposes monotonic history evidence f
 
 Letters core (2026-10-03): user explicitly chose both online in the same session for joint opening, replacing an async acknowledgement proposal. The author keeps their own copy; recipients see envelope/clue only after delivery and bodies only after explicit opening. Ordinary open times/state are private to the recipient; joint reveal is a shared explicit interaction. Defaults: 120-second session, heartbeat every 5 seconds, 15-second presence freshness; stale readiness resets. Sends are immutable, text-only, at most 2,000 codepoints with an 80-character clue. Minute-precision wall scheduling supports 2000–2100, with explicit DST overlap selection, UTC persistence and DB-clock eligibility. No letter deletion/reschedule, offline send/open, notification worker or conditional Open When is added. Production visual UI integration remains separate.
 
+## Integration
+
+Integration (2026-10-03): Codex owns the final review/merge and all gates. Home
+offers protected Whiteboard/Games/Letters/Island entry. Island shows only evidence
+derived from persisted server events and recent completed game artifacts; no
+sample memories or local unlock increments remain. Confirmed Memory/Milestone
+producers are still reserved, so the entire product cannot be called production
+complete on the basis of the game-driven map. Photos are House-shared after
+ready registration, require online upload and a server-only Supabase secret;
+uploading does not grant client metadata writes. See [ADR 003](ADR/003-private-photo-pipeline.md)
+and [current review](V1_INTEGRATION_REVIEW.md).
+
 ## Weather/location
 
 Home may use user-selected location to decorate weather/time context.

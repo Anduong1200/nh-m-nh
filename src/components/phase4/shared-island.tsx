@@ -1,108 +1,31 @@
 "use client";
-
-import React, { useState, useRef, useEffect } from "react";
+import type { IslandView } from "@/modules/island/client";
 import { MascotRabbit, MascotOwl } from "./mascots";
-
-/* ───────────────────────── Types ───────────────────────── */
-
-export type MemoryPoint = {
-  id: string;
-  label: string;
-  x: number;          // % from left
-  y: number;          // % from top
-  icon: string;
-  date?: string;
-  unlocked: boolean;
-};
-
-export type IslandArea = "cabin" | "garden" | "campfire" | "lookout" | "dock";
-
-type IslandProps = {
-  memories?: MemoryPoint[];
-  onAreaClick?: (area: IslandArea) => void;
-  onMemoryClick?: (memory: MemoryPoint) => void;
-  onClose: () => void;
-};
-
-/* ───────────────────── Island Component ────────────────── */
-
-export function SharedIsland({ memories = [], onAreaClick, onMemoryClick, onClose }: IslandProps) {
-  const [hoveredArea, setHoveredArea] = useState<IslandArea | null>(null);
-  const [selectedMemory, setSelectedMemory] = useState<MemoryPoint | null>(null);
-  const [easterEggCount, setEasterEggCount] = useState(0);
-  const [showScoutSign, setShowScoutSign] = useState(false);
-  const mapRef = useRef<HTMLDivElement>(null);
-
-  // Scout easter egg: tap the lookout flag 3 times
-  useEffect(() => {
-    if (easterEggCount >= 3) {
-      setShowScoutSign(true);
-      const timer = setTimeout(() => { setShowScoutSign(false); setEasterEggCount(0); }, 4000);
-      return () => clearTimeout(timer);
-    }
-  }, [easterEggCount]);
-
-  const handleAreaHover = (area: IslandArea | null) => setHoveredArea(area);
-
-  const handleAreaClick = (area: IslandArea) => {
-    if (area === "lookout") setEasterEggCount(c => c + 1);
-    onAreaClick?.(area);
-  };
-
-  const handleMemoryClick = (mem: MemoryPoint) => {
-    setSelectedMemory(mem);
-    onMemoryClick?.(mem);
-  };
-
+const gameNames = { "doodle-relay": "Vẽ tiếp sức", "draw-guess": "Vẽ và đoán", "one-line-story": "Chuyện từng dòng", "photo-mission": "Nhiệm vụ ảnh" } as const;
+const gameIcons = { "doodle-relay": "🎨", "draw-guess": "✏️", "one-line-story": "📝", "photo-mission": "📷" } as const;
+const positions = [[22, 68], [77, 65], [40, 78], [75, 32], [22, 30], [57, 27]];
+type IslandProps = { view: IslandView | null; cached: boolean; busy: boolean; error: string | null; blocked?: boolean; onRefresh: () => void };
+/** Renders trusted history. No control mutates world progress. */
+export function SharedIsland({ view, cached, busy, error, blocked = false, onRefresh }: IslandProps) {
+  const artifacts = view?.artifacts ?? [];
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden select-none" style={{ background: "linear-gradient(180deg, var(--scene-sky-start) 0%, var(--scene-sky-end) 40%, #7ab5c5 60%, #4a9ab5 100%)" }}>
-
-      {/* Sky decorations */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        {/* Clouds */}
-        <div className="absolute top-[8%] left-[10%] w-32 h-12 bg-white/30 rounded-full blur-sm" style={{ animation: "island-cloud-drift 60s linear infinite" }} />
-        <div className="absolute top-[12%] left-[50%] w-40 h-14 bg-white/20 rounded-full blur-sm" style={{ animation: "island-cloud-drift 80s linear infinite reverse" }} />
-        <div className="absolute top-[5%] right-[15%] w-24 h-10 bg-white/25 rounded-full blur-sm" style={{ animation: "island-cloud-drift 70s linear infinite" }} />
-        {/* Birds */}
-        <svg className="absolute top-[15%] left-[30%] w-8 h-8 opacity-40" viewBox="0 0 24 24" style={{ animation: "island-bird-fly 12s ease-in-out infinite" }}>
-          <path d="M2 12 Q6 6, 12 10 Q18 6, 22 12" fill="none" stroke="var(--scene-outline)" strokeWidth="1.5" />
-        </svg>
+    <main id="main-content" className="island-world relative min-h-dvh overflow-x-hidden pb-8" style={{ background: "linear-gradient(180deg, var(--scene-sky-start), var(--scene-sky-end) 40%, #7ab5c5 80%, #4a9ab5)" }}>
+      <header className="relative z-10 mx-auto flex max-w-5xl flex-wrap items-start justify-between gap-3 px-4 pt-5 sm:px-6">
+        <a href="/house" className="inline-flex min-h-11 items-center rounded-full bg-white/95 px-4 font-bold text-[var(--forest)] shadow focus-visible:outline-2 focus-visible:outline-offset-4">← Về Nhà</a>
+        <div className="order-3 w-full text-center sm:order-none sm:w-auto">
+          <h1 className="text-2xl font-bold text-[var(--forest)] [font-family:var(--font-display)] sm:text-3xl">Hòn đảo của hai đứa</h1>
+          <p className="mt-1 text-sm text-[var(--forest)]">Những điều hai đứa đã làm cùng nhau ở lại đây.</p>
+        </div>
+        <button type="button" onClick={onRefresh} disabled={busy || blocked} className="min-h-11 rounded-full bg-white/95 px-4 font-bold text-[var(--forest)] shadow disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-4">{busy ? "Đang tải…" : "Làm mới Đảo"}</button>
+      </header>
+      <div className="relative z-10 mx-auto mt-3 max-w-3xl px-4 text-center" aria-live="polite">
+        {cached && <p className="rounded-xl bg-[var(--paper)] p-2 text-sm text-[var(--forest)]">Đang xem bản đã lưu trên thiết bị. Đảo sẽ làm mới khi có kết nối.</p>}
+        {error && <p role="alert" className="mt-2 rounded-xl bg-[var(--paper)] p-3 text-[var(--forest)]">{error} {blocked && <a href="/house" className="underline">Về Nhà để xác nhận phiên.</a>}</p>}
       </div>
-
-      {/* Water / Ocean */}
-      <div className="absolute bottom-0 left-0 right-0 h-[35%] pointer-events-none">
-        <svg className="w-full h-full" viewBox="0 0 1200 300" preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="water-grad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#6db3c9" stopOpacity="0.7" />
-              <stop offset="100%" stopColor="#3a7d94" stopOpacity="0.9" />
-            </linearGradient>
-          </defs>
-          <path d="M0 80 Q150 60, 300 80 T600 80 T900 80 T1200 80 V300 H0Z" fill="url(#water-grad)">
-            <animate attributeName="d" dur="6s" repeatCount="indefinite"
-              values="M0 80 Q150 60,300 80 T600 80 T900 80 T1200 80 V300 H0Z;
-                      M0 80 Q150 100,300 80 T600 80 T900 80 T1200 80 V300 H0Z;
-                      M0 80 Q150 60,300 80 T600 80 T900 80 T1200 80 V300 H0Z" />
-          </path>
-          {/* Light sparkles on water */}
-          <circle cx="200" cy="150" r="2" fill="white" opacity="0.4">
-            <animate attributeName="opacity" dur="3s" repeatCount="indefinite" values="0.1;0.6;0.1" />
-          </circle>
-          <circle cx="800" cy="120" r="1.5" fill="white" opacity="0.3">
-            <animate attributeName="opacity" dur="4s" repeatCount="indefinite" values="0.1;0.5;0.1" />
-          </circle>
-          <circle cx="500" cy="180" r="2" fill="white" opacity="0.35">
-            <animate attributeName="opacity" dur="2.5s" repeatCount="indefinite" values="0.1;0.7;0.1" />
-          </circle>
-        </svg>
-      </div>
-
-      {/* ── THE ISLAND ── */}
-      <div ref={mapRef} className="absolute inset-0 flex items-center justify-center" style={{ touchAction: "manipulation" }}>
+      <div className="relative mx-auto flex max-w-5xl items-center justify-center py-2" style={{ touchAction: "manipulation" }}>
         <div className="relative w-[90vw] max-w-[900px] aspect-[4/3]">
-
           {/* Island landmass SVG */}
-          <svg className="absolute inset-0 w-full h-full" viewBox="0 0 900 675" preserveAspectRatio="xMidYMid meet">
+          <svg className="absolute inset-0 w-full h-full" viewBox="0 0 900 675" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
             <defs>
               <radialGradient id="island-grad" cx="50%" cy="45%" r="50%">
                 <stop offset="0%" stopColor="var(--scene-hill-back)" />
@@ -140,16 +63,11 @@ export function SharedIsland({ memories = [], onAreaClick, onMemoryClick, onClos
               [350, 400], [450, 350], [550, 380], [300, 500], [500, 500], [650, 480],
               [400, 450], [250, 420], [580, 440], [420, 530], [340, 560], [560, 550],
             ].map(([cx, cy], i) => (
-              <circle key={i} cx={cx} cy={cy} r={Math.random() * 2 + 1.5} fill="#4a7b52" opacity={0.3 + Math.random() * 0.3} />
+              <circle key={i} cx={cx} cy={cy} r={1.5 + (i % 3) * 0.5} fill="#4a7b52" opacity={0.3 + (i % 4) * 0.075} />
             ))}
 
             {/* ─── CABIN (top center) ─── */}
             <g
-              className="cursor-pointer"
-              onPointerEnter={() => handleAreaHover("cabin")}
-              onPointerLeave={() => handleAreaHover(null)}
-              onClick={() => handleAreaClick("cabin")}
-              style={{ transition: "transform 0.2s", transform: hoveredArea === "cabin" ? "scale(1.05)" : "scale(1)", transformOrigin: "450px 260px" }}
             >
               {/* Cabin body */}
               <rect x="410" y="250" width="80" height="55" rx="3" fill="var(--scene-wood)" />
@@ -164,24 +82,19 @@ export function SharedIsland({ memories = [], onAreaClick, onMemoryClick, onClos
               <rect x="470" y="228" width="10" height="18" fill="#8a6a48" />
               {/* Smoke */}
               <circle cx="475" cy="218" r="4" fill="white" opacity="0.3">
-                <animate attributeName="cy" dur="4s" repeatCount="indefinite" values="218;200;218" />
-                <animate attributeName="opacity" dur="4s" repeatCount="indefinite" values="0.3;0.1;0.3" />
+
+
               </circle>
               <circle cx="478" cy="210" r="3" fill="white" opacity="0.2">
-                <animate attributeName="cy" dur="5s" repeatCount="indefinite" values="210;190;210" />
-                <animate attributeName="opacity" dur="5s" repeatCount="indefinite" values="0.2;0.05;0.2" />
+
+
               </circle>
               {/* Label */}
-              <text x="450" y="325" textAnchor="middle" fontSize="12" fill="var(--scene-outline)" fontWeight="bold" opacity={hoveredArea === "cabin" ? 1 : 0.7}>Nhà nhỏ</text>
+              <text x="450" y="325" textAnchor="middle" fontSize="12" fill="var(--scene-outline)" fontWeight="bold" opacity="0.9">Nhà nhỏ</text>
             </g>
 
-            {/* ─── GARDEN (left area) ─── */}
-            <g
-              className="cursor-pointer"
-              onPointerEnter={() => handleAreaHover("garden")}
-              onPointerLeave={() => handleAreaHover(null)}
-              onClick={() => handleAreaClick("garden")}
-              style={{ transition: "transform 0.2s", transform: hoveredArea === "garden" ? "scale(1.05)" : "scale(1)", transformOrigin: "250px 440px" }}
+            {/* Garden reacts only to confirmed memory evidence. */}
+            <g opacity={view?.state.world.memories ? 1 : 0.65}
             >
               {/* Fence */}
               <line x1="200" y1="420" x2="300" y2="420" stroke="#b09060" strokeWidth="2" />
@@ -201,52 +114,39 @@ export function SharedIsland({ memories = [], onAreaClick, onMemoryClick, onClos
               {/* Leaves */}
               <ellipse cx="223" cy="465" rx="4" ry="2" fill="#5a9a52" />
               <ellipse cx="257" cy="470" rx="4" ry="2" fill="#5a9a52" />
-              <text x="250" y="495" textAnchor="middle" fontSize="12" fill="var(--scene-outline)" fontWeight="bold" opacity={hoveredArea === "garden" ? 1 : 0.7}>Vườn nhỏ</text>
+              <text x="250" y="495" textAnchor="middle" fontSize="12" fill="var(--scene-outline)" fontWeight="bold" opacity="0.9">Vườn nhỏ</text>
             </g>
 
             {/* ─── CAMPFIRE (center-right) ─── */}
             <g
-              className="cursor-pointer"
-              onPointerEnter={() => handleAreaHover("campfire")}
-              onPointerLeave={() => handleAreaHover(null)}
-              onClick={() => handleAreaClick("campfire")}
-              style={{ transition: "transform 0.2s", transform: hoveredArea === "campfire" ? "scale(1.05)" : "scale(1)", transformOrigin: "620px 430px" }}
             >
               {/* Log circle */}
               <ellipse cx="620" cy="445" rx="30" ry="10" fill="#8a6a40" />
               <ellipse cx="620" cy="445" rx="20" ry="7" fill="#5a4025" />
               {/* Fire */}
               <path d="M620 420 Q610 435, 615 440 Q620 430, 625 440 Q630 435, 620 420Z" fill="#f5a623" opacity="0.9">
-                <animate attributeName="d" dur="1.5s" repeatCount="indefinite"
-                  values="M620 420 Q610 435,615 440 Q620 430,625 440 Q630 435,620 420Z;
-                          M620 418 Q608 432,614 440 Q620 428,626 440 Q632 432,620 418Z;
-                          M620 420 Q610 435,615 440 Q620 430,625 440 Q630 435,620 420Z" />
+
               </path>
               <path d="M620 425 Q615 435, 618 440 Q620 433, 622 440 Q625 435, 620 425Z" fill="#ff6b35" opacity="0.8">
-                <animate attributeName="opacity" dur="1s" repeatCount="indefinite" values="0.6;0.9;0.6" />
+
               </path>
               {/* Sparks */}
               <circle cx="615" cy="415" r="1.5" fill="#ffd700" opacity="0.6">
-                <animate attributeName="cy" dur="2s" repeatCount="indefinite" values="415;405;415" />
-                <animate attributeName="opacity" dur="2s" repeatCount="indefinite" values="0.6;0;0.6" />
+
+
               </circle>
               <circle cx="625" cy="412" r="1" fill="#ffd700" opacity="0.5">
-                <animate attributeName="cy" dur="2.5s" repeatCount="indefinite" values="412;400;412" />
-                <animate attributeName="opacity" dur="2.5s" repeatCount="indefinite" values="0.5;0;0.5" />
+
+
               </circle>
               {/* Seating logs */}
               <rect x="590" y="455" width="25" height="8" rx="4" fill="#6a5030" transform="rotate(-10 602 459)" />
               <rect x="635" y="455" width="25" height="8" rx="4" fill="#6a5030" transform="rotate(10 647 459)" />
-              <text x="620" y="480" textAnchor="middle" fontSize="12" fill="var(--scene-outline)" fontWeight="bold" opacity={hoveredArea === "campfire" ? 1 : 0.7}>Lửa trại</text>
+              <text x="620" y="480" textAnchor="middle" fontSize="12" fill="var(--scene-outline)" fontWeight="bold" opacity="0.9">Lửa trại</text>
             </g>
 
             {/* ─── LOOKOUT / FLAG (top right hill) ─── */}
             <g
-              className="cursor-pointer"
-              onPointerEnter={() => handleAreaHover("lookout")}
-              onPointerLeave={() => handleAreaHover(null)}
-              onClick={() => handleAreaClick("lookout")}
-              style={{ transition: "transform 0.2s", transform: hoveredArea === "lookout" ? "scale(1.05)" : "scale(1)", transformOrigin: "680px 300px" }}
             >
               {/* Hill bump */}
               <ellipse cx="680" cy="320" rx="50" ry="30" fill="#3a6b42" />
@@ -254,21 +154,15 @@ export function SharedIsland({ memories = [], onAreaClick, onMemoryClick, onClos
               <line x1="680" y1="260" x2="680" y2="320" stroke="#7a5a38" strokeWidth="3" />
               {/* Flag (Scout-inspired) */}
               <polygon points="680,262 710,272 680,282" fill="#d85040">
-                <animate attributeName="points" dur="3s" repeatCount="indefinite"
-                  values="680,262 710,272 680,282;680,262 712,270 680,282;680,262 710,272 680,282" />
+
               </polygon>
               {/* Scout fleur-de-lis hint on flag */}
               <circle cx="695" cy="272" r="3" fill="white" opacity="0.6" />
-              <text x="680" y="350" textAnchor="middle" fontSize="12" fill="var(--scene-outline)" fontWeight="bold" opacity={hoveredArea === "lookout" ? 1 : 0.7}>Vọng gác</text>
+              <text x="680" y="350" textAnchor="middle" fontSize="12" fill="var(--scene-outline)" fontWeight="bold" opacity="0.9">Vọng gác</text>
             </g>
 
             {/* ─── DOCK (bottom center) ─── */}
             <g
-              className="cursor-pointer"
-              onPointerEnter={() => handleAreaHover("dock")}
-              onPointerLeave={() => handleAreaHover(null)}
-              onClick={() => handleAreaClick("dock")}
-              style={{ transition: "transform 0.2s", transform: hoveredArea === "dock" ? "scale(1.05)" : "scale(1)", transformOrigin: "450px 650px" }}
             >
               {/* Dock planks */}
               <rect x="420" y="645" width="60" height="40" rx="2" fill="#b09060" />
@@ -278,7 +172,7 @@ export function SharedIsland({ memories = [], onAreaClick, onMemoryClick, onClos
               {/* Dock posts */}
               <rect x="425" y="640" width="5" height="48" fill="#8a6a40" />
               <rect x="470" y="640" width="5" height="48" fill="#8a6a40" />
-              <text x="450" y="700" textAnchor="middle" fontSize="11" fill="#7a5a38" fontWeight="bold" opacity={hoveredArea === "dock" ? 1 : 0.6}>Bến nhỏ</text>
+              <text x="450" y="670" textAnchor="middle" fontSize="11" fill="#7a5a38" fontWeight="bold" opacity="0.9">Bến nhỏ</text>
             </g>
 
             {/* ─── TREES scattered ─── */}
@@ -287,8 +181,8 @@ export function SharedIsland({ memories = [], onAreaClick, onMemoryClick, onClos
               [160, 460, 0.7], [730, 450, 0.75], [380, 550, 0.6], [520, 560, 0.65],
             ].map(([x, y, s], i) => (
               <g key={`tree-${i}`} transform={`translate(${x},${y}) scale(${s})`}>
-                <polygon points="0,-25 -12,5 12,5" fill="#3a6b42" opacity={0.7 + Math.random() * 0.2} />
-                <polygon points="0,-18 -10,5 10,5" fill="#4a8b52" opacity={0.6 + Math.random() * 0.2} />
+                <polygon points="0,-25 -12,5 12,5" fill="#3a6b42" opacity={0.7 + (i % 3) * 0.05} />
+                <polygon points="0,-18 -10,5 10,5" fill="#4a8b52" opacity={0.6 + (i % 3) * 0.05} />
                 <rect x="-2" y="5" width="4" height="8" fill="#6a5030" />
               </g>
             ))}
@@ -308,114 +202,37 @@ export function SharedIsland({ memories = [], onAreaClick, onMemoryClick, onClos
             <MascotOwl className="w-10 h-10 drop-shadow-md" />
           </div>
 
-          {/* ─── MEMORY POINTS ─── */}
-          {memories.map(mem => (
-            <button
-              key={mem.id}
-              className={`absolute flex flex-col items-center gap-1 transition-all duration-300 group ${
-                mem.unlocked ? "opacity-100 hover:scale-110" : "opacity-40 cursor-default"
-              }`}
-              style={{
-                left: `${mem.x}%`,
-                top: `${mem.y}%`,
-                transform: "translate(-50%, -50%)",
-              }}
-              onClick={() => mem.unlocked && handleMemoryClick(mem)}
-              disabled={!mem.unlocked}
-              title={mem.unlocked ? mem.label : "Chưa mở khóa"}
-            >
-              <span className={`text-2xl drop-shadow-md ${mem.unlocked ? "animate-bounce" : ""}`} style={{ animationDuration: "3s" }}>
-                {mem.icon}
-              </span>
-              <span className="text-[10px] font-bold bg-white/80 px-2 py-0.5 rounded-full shadow-sm opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap text-gray-700">
-                {mem.label}
-              </span>
-            </button>
+          {artifacts.slice(0, 6).map((artifact, index) => (
+            <a key={artifact.id} href={`/games?session=${encodeURIComponent(artifact.id)}`}
+              className="absolute flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[var(--paper)] text-2xl shadow focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--forest)]"
+              style={{ left: `${positions[index]![0]}%`, top: `${positions[index]![1]}%`, transform: "translate(-50%, -50%)" }}
+              aria-label={`Xem tác phẩm: ${gameNames[artifact.gameType]}`}><span aria-hidden="true">{gameIcons[artifact.gameType]}</span></a>
           ))}
         </div>
       </div>
-
-      {/* ─── SCOUT EASTER EGG OVERLAY ─── */}
-      {showScoutSign && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm pointer-events-none animate-in fade-in duration-500">
-          <div className="bg-[var(--paper)] p-8 rounded-2xl shadow-2xl transform rotate-1 max-w-sm text-center">
-            <p className="text-5xl mb-4">⚜️</p>
-            <p className="text-2xl font-bold text-[var(--forest)] [font-family:var(--font-display)]">Sắp Sẵn — Luôn Sẵn</p>
-            <p className="text-gray-600 mt-2 text-sm italic">Dấu hiệu Hướng Đạo • TNTT • PSVN</p>
-            <div className="mt-4 flex justify-center gap-2">
-              <span className="px-3 py-1 bg-amber-100 rounded-full text-xs font-bold text-amber-800">Tráng</span>
-              <span className="px-3 py-1 bg-green-100 rounded-full text-xs font-bold text-green-800">Thiếu</span>
-              <span className="px-3 py-1 bg-blue-100 rounded-full text-xs font-bold text-blue-800">Kha</span>
-            </div>
-          </div>
+      <section className="relative z-10 mx-auto grid max-w-4xl gap-4 px-4 sm:grid-cols-[1fr_2fr]" aria-label="Dấu vết trên Đảo">
+        <div className="rounded-2xl border border-[var(--forest)]/20 bg-[var(--paper)] p-4 text-[var(--forest)] shadow">
+          <h2 className="font-bold [font-family:var(--font-display)]">Bản đồ nhỏ</h2>
+          <p className="mt-2 text-sm">🏠 Nhà nhỏ · chỗ trở về</p>
+          <p className="mt-2 text-sm">🌸 Vườn · {view?.state.world.memories ? "có kỷ niệm đã xác nhận" : "trang trí"}</p>
+          <p className="mt-2 text-sm">🔥 Lửa trại · trang trí, chưa mở</p>
+          <p className="mt-2 text-sm">⚜️ Cờ Hướng Đạo · trang trí</p>
+          <p className="mt-2 text-sm">⛵ Bến · {view?.state.world.missions ? "đã có tác phẩm nhiệm vụ ảnh" : "trang trí"}</p>
+          <p className="mt-3 text-sm">Kỷ niệm và cột mốc chỉ hiện khi có nguồn đã xác nhận. Tác phẩm trò chơi được giữ riêng.</p>
         </div>
-      )}
-
-      {/* ─── MEMORY DETAIL POPUP ─── */}
-      {selectedMemory && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setSelectedMemory(null)}>
-          <div className="bg-[var(--paper)] p-6 rounded-2xl shadow-2xl max-w-sm w-[90vw] transform -rotate-1" onClick={e => e.stopPropagation()}>
-            <div className="text-center">
-              <span className="text-5xl block mb-3">{selectedMemory.icon}</span>
-              <h3 className="text-xl font-bold text-[var(--forest)] [font-family:var(--font-display)]">{selectedMemory.label}</h3>
-              {selectedMemory.date && <p className="text-sm text-gray-500 mt-1">{selectedMemory.date}</p>}
-            </div>
-            <div className="mt-6 aspect-video bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center">
-              <p className="text-gray-400 text-sm">Kỷ niệm sẽ hiện ở đây</p>
-            </div>
-            <button
-              onClick={() => setSelectedMemory(null)}
-              className="mt-4 w-full py-2 bg-[var(--forest)] text-[var(--paper)] rounded-xl font-bold hover:scale-[1.02] transition-transform"
-            >
-              Đóng lại
-            </button>
-          </div>
+        <div className="rounded-2xl border border-[var(--forest)]/20 bg-[var(--paper)] p-4 text-[var(--forest)] shadow">
+          <h2 className="text-xl font-bold [font-family:var(--font-display)]">Tác phẩm gần đây</h2>
+          {!view && <p className="mt-3">{busy ? "Đang mở bản đồ…" : "Chưa tải được bản đồ. Thử làm mới khi có kết nối nhé."}</p>}
+          {view && artifacts.length === 0 && <p className="mt-3">{view.state.world.sharedHistory ? "Dấu vết vẫn được giữ trên Đảo. Chưa có tác phẩm trong danh sách gần đây." : "Đảo còn yên ắng. Một trò chơi nhỏ có thể để lại dấu vết đầu tiên."}</p>}
+          {artifacts.length > 0 && <ul className="mt-3 space-y-2">{artifacts.map(artifact => (
+            <li key={artifact.id}><a href={`/games?session=${encodeURIComponent(artifact.id)}`} className="flex min-h-11 items-center gap-3 rounded-xl border border-[var(--forest)]/20 p-3 focus-visible:outline-2 focus-visible:outline-offset-2 hover:bg-[var(--forest)]/5">
+              <span aria-hidden="true">{gameIcons[artifact.gameType]}</span><span><strong className="block">{gameNames[artifact.gameType]}</strong><span className="text-sm">{artifact.gameType === "draw-guess" ? "Bức vẽ và đáp án đã mở" : artifact.prompt}</span></span>
+            </a></li>
+          ))}</ul>}
+          <a href="/games" style={{ color: "var(--paper)" }} className="mt-4 inline-flex min-h-11 items-center rounded-full bg-[var(--forest)] px-4 font-bold focus-visible:outline-2 focus-visible:outline-offset-4">Ghé hộp trò chơi</a>
+          <p className="mt-3 text-sm">Đảo giữ lịch sử, không mất đi khi hai đứa nghỉ một thời gian.</p>
         </div>
-      )}
-
-      {/* ─── TOOLBAR ─── */}
-      <div className="absolute top-6 left-6 z-[9999] flex gap-3">
-        <button
-          onClick={onClose}
-          className="w-12 h-12 flex items-center justify-center bg-white/90 rounded-full text-xl shadow-lg hover:scale-105 transition-transform backdrop-blur-md"
-          title="Trở về"
-          aria-label="Trở về phòng"
-        >
-          ✕
-        </button>
-      </div>
-
-      {/* ─── ISLAND TITLE ─── */}
-      <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[9998] text-center">
-        <h2 className="text-2xl md:text-3xl font-bold text-white [font-family:var(--font-display)] drop-shadow-lg">
-          Hòn đảo của hai đứa
-        </h2>
-        <p className="text-sm text-white/70 mt-1 drop-shadow">Khám phá kỷ niệm và phiêu lưu cùng nhau</p>
-      </div>
-
-      {/* ─── LEGEND (bottom-right) ─── */}
-      <div className="absolute bottom-6 right-6 z-[9998] bg-white/80 backdrop-blur-md rounded-xl p-3 shadow-lg text-xs text-gray-700 space-y-1 border border-white/50">
-        <p className="font-bold text-gray-800 mb-1">Bản đồ</p>
-        <p>🏠 Nhà nhỏ · trung tâm</p>
-        <p>🌸 Vườn nhỏ · kỷ niệm</p>
-        <p>🔥 Lửa trại · chưa mở</p>
-        <p>🚩 Vọng gác · khám phá</p>
-        <p>⛵ Bến nhỏ · bắt đầu</p>
-      </div>
-
-      {/* ─── CSS ANIMATIONS ─── */}
-      <style>{`
-        @keyframes island-cloud-drift {
-          0% { transform: translateX(-10vw); }
-          100% { transform: translateX(110vw); }
-        }
-        @keyframes island-bird-fly {
-          0%, 100% { transform: translate(0, 0); }
-          25% { transform: translate(40px, -10px); }
-          50% { transform: translate(80px, 5px); }
-          75% { transform: translate(40px, -5px); }
-        }
-      `}</style>
-    </div>
+      </section>
+    </main>
   );
 }

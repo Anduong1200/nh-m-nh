@@ -15,6 +15,11 @@ await build({ entryPoints: ["tests/ui-fixture/letter-server.ts"], bundle: true, 
 const { handleLetterFixture } = await import(pathToFileURL(join(process.cwd(), ".pnpm-cache/letter-server.mjs")));
 const letterBrowserBundle = await build({ entryPoints: ["tests/ui-fixture/letter-entry.ts"], bundle: true, write: false, format: "esm", platform: "browser", target: "es2022" });
 
+const lettersUiBundle = await build({ entryPoints: ["tests/ui-fixture/letters-ui-entry.tsx"], bundle: true, write: false, format: "esm", platform: "browser", target: "es2022", jsx: "automatic", define: { "process.env.NODE_ENV": '"production"' }, alias: { "next/navigation": "./tests/ui-fixture/games-ui-navigation.ts", "@/modules/letters/actions": "./tests/ui-fixture/letters-ui-actions.ts" } });
+const islandUiBundle = await build({ entryPoints: ["tests/ui-fixture/island-entry.tsx"], bundle: true, write: false, format: "esm", platform: "browser", target: "es2022", jsx: "automatic", define: { "process.env.NODE_ENV": '"production"' }, alias: { "@/modules/island/actions": "./tests/ui-fixture/island-actions.ts", "@/modules/games/actions": "./tests/ui-fixture/island-actions.ts" } });
+const gamesUiBundle = await build({ entryPoints: ["tests/ui-fixture/games-ui-entry.tsx"], bundle: true, write: false, minify: true, splitting: true, outdir: ".pnpm-cache/games-ui-fixture", format: "esm", platform: "browser", target: "es2022", jsx: "automatic", conditions: ["production"], loader: { ".woff2": "file" }, define: { "process.env.NODE_ENV": '"production"', "process.env.IS_PREACT": "false" }, alias: { "next/navigation": "./tests/ui-fixture/games-ui-navigation.ts", "@/modules/games/actions": "./tests/ui-fixture/games-ui-actions.ts", "@/modules/media/actions": "./tests/ui-fixture/games-ui-media-actions.ts" } });
+const gamesUiFiles = new Map(gamesUiBundle.outputFiles.map(f => [f.path.split(/[\\/]/).at(-1), f]));
+
 const bundle = await build({ entryPoints: ["tests/ui-fixture/entry.tsx"], bundle: true, write: false, format: "esm", platform: "browser", jsx: "automatic", define: { "process.env.NODE_ENV": '"production"' },
   // Phase 2 fixture never imports real server actions or Supabase into its browser bundle.
   // Board has its own workstream; invoking it here fails explicitly.
@@ -51,6 +56,19 @@ function json(response, value, status = 200) {
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
+  if (url.pathname === "/letters-ui-bundle.js" || url.pathname === "/island-bundle.js") {
+    response.writeHead(200, { "Content-Type": "text/javascript" }); response.end((url.pathname === "/island-bundle.js" ? islandUiBundle : lettersUiBundle).outputFiles[0].text); return;
+  }
+  if (url.pathname.startsWith("/games-ui-fixture/")) {
+    const name = url.pathname.split("/").at(-1), file = gamesUiFiles.get(name);
+    if (!file) { response.writeHead(404); response.end(); return; }
+    response.writeHead(200, { "Content-Type": name.endsWith(".css") ? "text/css" : name.endsWith(".woff2") ? "font/woff2" : "text/javascript" }); response.end(file.contents); return;
+  }
+  const screen = url.searchParams.get("letters-ui") === "1" ? "letters" : url.searchParams.get("games-ui") === "1" ? "games" : url.searchParams.get("island") === "1" ? "island" : null;
+  if (screen) {
+    const script = screen === "games" ? "/games-ui-fixture/games-ui-entry.js" : screen === "letters" ? "/letters-ui-bundle.js" : "/island-bundle.js";
+    response.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-store" }); response.end(`<!doctype html><html lang="vi" class="${fontClass}" data-theme="day"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nhà Mình · ${screen} integration fixture</title><link rel="stylesheet" href="/styles.css">${screen === "games" ? '<link rel="stylesheet" href="/games-ui-fixture/games-ui-entry.css">' : ""}</head><body><div id="root"></div><script type="module" src="${script}"></script></body></html>`); return;
+  }
   if (await handleLetterFixture(request, response, url)) return;
   if (url.pathname === "/letter-bundle.js") { response.writeHead(200, { "Content-Type": "text/javascript" }); response.end(letterBrowserBundle.outputFiles[0].text); return; }
   if (url.searchParams.get("letters") === "1") { response.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-store" }); response.end('<!doctype html><html lang="vi"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Letters core fixture</title><body><script type="module" src="/letter-bundle.js"></script></body></html>'); return; }

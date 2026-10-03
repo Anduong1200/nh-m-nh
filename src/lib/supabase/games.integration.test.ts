@@ -1,5 +1,6 @@
 import { readFile,readdir } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
+import { createStorageSchema } from "../../../tests/fixtures/storage-schema";
 import { afterAll,beforeAll,describe,expect,it } from "vitest";
 import { gameReceipt,parseGameSession,type GameCommand,type GameReceipt } from "@/modules/games/model";
 import { createGame,doodleMove,gameActors } from "@/modules/games/test-fixtures";
@@ -22,6 +23,7 @@ const move = (sid: string,version: number,text: string,kind: "line" | "guess" = 
 beforeAll(async () => {
   db = new PGlite();
   await db.exec("create role anon nologin; create role authenticated nologin; create schema auth; create table auth.users(id uuid primary key); create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$; grant usage on schema auth to anon,authenticated; grant execute on function auth.uid() to anon,authenticated;");
+  await createStorageSchema(db);
   for (const name of (await readdir("supabase/migrations")).filter(n => n.endsWith(".sql")).sort()) await db.exec(await readFile("supabase/migrations/"+name,"utf8"));
   for (const id of [a,b,outsider,other]) await db.query("insert into auth.users(id) values($1)",[id]);
   house = (await asUser<{id:string}>(a,"select public.create_house_with_owner() as id"))[0]!.id;

@@ -66,9 +66,19 @@ Priority:
 
 ## Completion
 
+Current integration verification is recorded in [V1 integration review](V1_INTEGRATION_REVIEW.md).
+Production components for Games, Letters and Island are mounted in isolated
+browser fixtures with real IndexedDB. Letters runs real SQL/RLS/RPCs behind
+test-only identities; Games/Island use simulated transport with separate SQL
+integration coverage. Protected production routes and the private image denial
+endpoint are checked against `next start`. Actual Excalidraw canvas interactions
+and private-photo pixel decoding are exercised. These tests do not substitute
+for hosted Supabase Auth/Storage, independent DB connections or physical PWAs.
+Constrained Windows checks may run one worker; no tests are disabled.
+
 Letters browser tests execute actual PostgreSQL/PGlite RPCs/RLS via a separate test-only HTTP process, while auth identities and due/stale/expiry controls are explicit fixture shims. They verify sealed payload absence, scheduled eligibility, live joint consent, expired sessions, reconnect and logout/draft persistence in three browser projects. Unit/integration tests also check DST, actor projections, permission denial and transactional opening rollback. This is not hosted Supabase/Auth or independent-connection concurrency coverage. See [Letters verification](LETTERS_DOMAIN.md#install-and-verification).
 
-Island tests execute the real SQL ledger/view/trigger and guarded installer under PostgreSQL/PGlite roles. They check source-derived completion, transactional failure rollback, retry/backfill deduplication, UTC weekly boundaries, cross-House/anonymous/inactive access, forbidden writes and SQL/TypeScript projection parity. Browser regression covers Games as the active producer; production Island UI, hosted migration/Auth and independent-connection stress remain separate. See [Island verification](ISLAND_DOMAIN.md#verification).
+Island tests execute the real SQL ledger/view/trigger and guarded installer under PostgreSQL/PGlite roles. They check source-derived completion, transactional failure rollback, retry/backfill deduplication, UTC weekly boundaries, cross-House/anonymous/inactive access, forbidden writes and SQL/TypeScript projection parity. Browser regression exercises the production Island UI with Games as the active producer; hosted migration/Auth and independent-connection stress remain separate. See [Island verification](ISLAND_DOMAIN.md#verification).
 
 Board domain tests and the simulated browser transport are documented in [BOARD_DOMAIN.md](BOARD_DOMAIN.md#verification-boundaries). SQL tests run the real migration chain under PostgreSQL roles; browser tests run real IndexedDB/sync with separate simulated HTTP data. Both are required; neither claims hosted Storage/Auth or independent connection concurrency coverage. The Home palette test waits for CSS transitions before asserting final contrast, retaining the original accessibility threshold.
 

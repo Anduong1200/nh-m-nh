@@ -1,6 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
+import { notifyAccountInvalidation } from "./invalidation";
 
-export type OfflineContentKind = "note" | "doodle" | "whiteboard" | "game" | "letter";
+export type OfflineContentKind = "note" | "doodle" | "whiteboard" | "game" | "letter" | "island";
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 export interface OfflineDraft {
@@ -415,5 +416,6 @@ export async function clearAccountOfflineData(accountId: string) {
     await tx.done;
   } finally {
     cleanupInProgress.delete(accountId);
+    notifyAccountInvalidation(accountId);
   }
 }

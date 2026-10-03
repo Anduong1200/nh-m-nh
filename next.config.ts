@@ -6,6 +6,7 @@ validateEnvironment();
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
+  experimental: { serverActions: { bodySizeLimit: "4.25mb" } },
   async headers() {
     return [
       {
