@@ -20,6 +20,8 @@ import {
   type NotificationPreferences,
 } from "@/modules/notifications/model";
 import { HomeDialog } from "./home-dialog";
+import { BackgroundNotificationSettings } from "./background-notifications";
+import type { BackgroundNotificationConfiguration } from "@/modules/notifications/push-model";
 import { Board } from "@/components/phase3/board";
 import {
   browserNotificationTransport, ForegroundKnockNotifications, readForegroundPermission,
@@ -41,6 +43,8 @@ export type HomeRoomProps = {
   loadError?: string | null;
   online?: boolean;
   signOutControl?: ReactNode;
+  onOpenBoard?: () => void;
+  backgroundNotifications?: BackgroundNotificationConfiguration | undefined;
 };
 
 function localTimeZone() {
@@ -81,7 +85,7 @@ function expiryText(status: PresenceStatus) {
 export function HomeRoom({
   house, currentUserId, state, refresh, savePresence, clearPresence, sendKnock,
   savePreferences, dismissKnock, updateDisplayName, refreshing = false, loadError = null,
-  online = true, signOutControl,
+  online = true, signOutControl, onOpenBoard, backgroundNotifications,
 }: HomeRoomProps) {
   const [openDialog, setOpenDialog] = useState<"presence" | "knock" | "settings" | "edit-name" | "board" | null>(null);
   const [presenceDraft, setPresenceDraft] = useState<PresenceInput | null>(null);
@@ -303,7 +307,7 @@ export function HomeRoom({
               navigationNode={<nav aria-label="Những góc trong Nhà" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {[["/whiteboard", "✎", "Bảng vẽ chung"], ["/games", "🎲", "Hộp trò chơi"], ["/letters", "✉", "Hòm thư"], ["/island", "🗺", "Đảo chung"]].map(([href, symbol, label]) => <a key={href} href={href} className="flex min-h-16 items-center gap-3 rounded-lg border border-[var(--line)] bg-[var(--paper-raised)] p-3 text-[var(--ink)] shadow-sm"><span aria-hidden="true" className="text-2xl">{symbol}</span><span className="font-semibold">{label}</span></a>)}
               </nav>}
-              openBoard={() => setOpenDialog("board")}
+              openBoard={onOpenBoard ?? (() => setOpenDialog("board"))}
               openPresence={openPresence}
               openSettings={openSettings}
               openKnock={openKnock}
@@ -416,13 +420,14 @@ export function HomeRoom({
           <label>Múi giờ cho giờ yên tĩnh<input disabled={busy} value={preferencesDraft.timeZone} placeholder="Asia/Ho_Chi_Minh" onChange={(event) => setPreferencesDraft({ ...preferencesDraft, timeZone: event.target.value })} /><span className="home-form-hint">Tên múi giờ IANA, ví dụ Asia/Ho_Chi_Minh hoặc Europe/Paris.</span></label>
           <button type="button" className="home-subtle-button" disabled={busy} onClick={() => setPreferencesDraft({ ...preferencesDraft, timeZone: localTimeZone() })}>Dùng múi giờ trên thiết bị</button>
           <label className="home-checkbox"><input disabled={busy} type="checkbox" checked={preferencesDraft.preview === "detail"} onChange={(event) => setPreferencesDraft({ ...preferencesDraft, preview: event.target.checked ? "detail" : "generic" })} /><span>Hiện lời nhắn hoặc nhãn dán trong thông báo<span className="home-form-hint" style={{ display: "block" }}>Tùy chọn riêng tư: nội dung có thể hiện trên màn hình khóa hoặc trước người ở gần. Mặc định chỉ báo có cú gõ.</span></span></label>
-          <div className="home-settings-section"><h3>Thông báo của trình duyệt</h3><p>Chỉ báo cú gõ mới khi Nhà đang mở và hiển thị trên thiết bị này. Chưa có thông báo nền khi đóng ứng dụng. Bật quyền là lựa chọn của bạn.</p>
+          <div className="home-settings-section"><h3>Thông báo khi Nhà đang mở</h3><p>Báo cú gõ mới khi Nhà đang mở và hiển thị trên thiết bị này. Bật quyền là lựa chọn của bạn.</p>
             {permission === "unsupported" ? <p>Trình duyệt này chưa hỗ trợ thông báo kiểu này. Cú gõ vẫn ở trong Nhà.</p> : permission === "granted" ? <p className="home-permission-status">Trình duyệt đã cho phép. Giờ yên tĩnh và lựa chọn riêng tư vẫn được áp dụng.</p> : permission === "denied" ? <p>Thông báo đang bị chặn. Bạn có thể đổi quyền trong cài đặt trình duyệt nếu muốn.</p> : <button type="button" className="home-subtle-button" onClick={() => void requestNotifications()}>Cho phép thông báo khi Nhà đang mở</button>}
           </div>
           {!online && <p className="home-inline-error" role="status">Cần có mạng để lưu lựa chọn. Mẫu đang viết vẫn được giữ.</p>}
           {formError && <p className="home-inline-error" role="alert">{formError}</p>}
           <div className="home-form-actions"><button type="submit" className="home-submit" disabled={busy || !online}>{busy ? "Đang lưu…" : "Lưu nhịp thông báo"}</button></div>
         </form>}
+        {backgroundNotifications && openDialog === "settings" && <BackgroundNotificationSettings context={{ accountId: currentUserId, houseId: house.id }} configuration={backgroundNotifications} />}
       </HomeDialog>
 
       <HomeDialog open={openDialog === "edit-name"} title="Sửa tên / biệt danh" onClose={closeDialog}>

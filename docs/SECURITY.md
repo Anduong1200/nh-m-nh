@@ -138,3 +138,17 @@ Automated tests should include:
 - game turn cannot be played by wrong user;
 - scheduled letter cannot be read before allowed state;
 - logout clears sensitive offline cache where implemented.
+
+Memory/Milestone journal entries enforce shared edits and creator-only
+trash/restore in locked versioned RPCs. Confirmation and immutable completed
+same-House artifact sources gate Memory promotion. Progress comes from the DB
+ledger and never a client level counter. Private photo/PCM voice bytes are
+validated server-side; requester RLS controls no-store reads and ranges.
+
+Cold offline recovery uses the last verified account/House namespace and a
+seven-day marker, never an auth token. Expiry does not delete drafts. Fresh
+identity validation gates reconnect; logout generations block late callbacks.
+Push endpoint allowlists prevent arbitrary outbound URLs. Device credentials
+have owner-only RLS; outbox RPCs are service-only. Generic payload and an opaque
+worker binding prevent private text and delayed logged-out notifications.
+See ADR 004 and the hosted/device release checks for the limits of these tests.

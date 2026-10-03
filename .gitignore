@@ -14,3 +14,4 @@ test-results/
 .DS_Store
 Thumbs.db
 public/vendor/excalidraw-0.18.1/fonts/
+public/offline-build.js

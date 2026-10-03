@@ -5,13 +5,15 @@ import { describe, expect, it, vi } from "vitest";
 const ORIGIN = "https://nha-minh.example";
 const script = readFileSync(new URL("../../../public/sw.js", import.meta.url), "utf8");
 
-function harness() {
+function harness(build?: { id: string; assets: string[] }) {
   const listeners = new Map<string, (event: unknown) => void>();
   const content = new Map<string, Map<string, Response>>();
   const fetchMock = vi.fn<(request: Request) => Promise<Response>>(async () =>
     new Response("public asset", { headers: { "cache-control": "public, max-age=31536000, immutable", "content-type": "text/javascript" } }),
   );
   const skipWaiting = vi.fn(async () => undefined);
+  const showNotification = vi.fn(async () => undefined);
+  const closeNotification = vi.fn();
   const normalize = (value: string | Request) => typeof value === "string" ? new URL(value, ORIGIN).href : value.url;
   class RelativeRequest extends Request {
     constructor(input: RequestInfo | URL, init?: RequestInit) {
@@ -36,7 +38,7 @@ function harness() {
     async delete(name: string) { return content.delete(name); },
   };
   runInNewContext(script, {
-    self: { location: { origin: ORIGIN }, addEventListener: (name: string, handler: (event: unknown) => void) => listeners.set(name, handler), skipWaiting, clients: { claim: vi.fn(async () => undefined) } },
+    self: { NHA_MINH_OFFLINE_BUILD: build, registration: { showNotification, getNotifications: async () => [{ close: closeNotification }] }, location: { origin: ORIGIN }, addEventListener: (name: string, handler: (event: unknown) => void) => listeners.set(name, handler), skipWaiting, clients: { claim: vi.fn(async () => undefined) } },
     caches,
     fetch: fetchMock,
     URL,
@@ -52,10 +54,32 @@ function harness() {
     return result;
   }
 
-  return { listeners, content, fetchMock, skipWaiting, caches, dispatchFetch };
+  return { listeners, content, fetchMock, skipWaiting, caches, dispatchFetch, showNotification, closeNotification };
 }
 
 describe("public service-worker caching boundary", () => {
+  it("precaches a public recovery document and editor code but rejects private build-manifest paths", async () => {
+    const worker = harness({ id: "test-build", assets: ["/_next/static/chunk.js", "/house", "/media/private", "/_next/static/../private.js"] });
+    let installed: Promise<unknown> | undefined;
+    worker.listeners.get("install")?.({ waitUntil: (work: Promise<unknown>) => { installed = work; } }); await installed;
+    const paths = [...worker.content.get("nha-minh-public-shell-v2-test-build")!.keys()].map(url => new URL(url).pathname);
+    expect(paths).toContain("/offline"); expect(paths).toContain("/_next/static/chunk.js"); expect(paths).not.toContain("/house"); expect(paths).not.toContain("/media/private");
+    expect(worker.fetchMock.mock.calls.every(([request]) => request.credentials === "omit")).toBe(true);
+    worker.fetchMock.mockRejectedValue(new Error("origin stopped"));
+    expect(await (await worker.dispatchFetch("/offline", undefined, true))?.text()).toBe("public asset");
+    expect(await (await worker.dispatchFetch("/_next/static/chunk.js"))?.text()).toBe("public asset");
+  });
+  it("shows generic push only for the currently bound device and ignores delayed pushes after logout", async () => {
+    const worker = harness(), token = crypto.randomUUID(), eventId = crypto.randomUUID(), ack = vi.fn();
+    async function event(name: string, value: Record<string, unknown>) { let work: Promise<unknown> | undefined; worker.listeners.get(name)?.({ ...value, waitUntil: (pending: Promise<unknown>) => { work = pending; } }); await work; }
+    const push = (deviceToken: string) => event("push", { data: { text: () => JSON.stringify({ kind: "nha-minh", deviceToken, eventId, title: "Private", body: "Secret letter" }) } });
+    await push(token); expect(worker.showNotification).not.toHaveBeenCalled();
+    await event("message", { data: { type: "SET_PUSH_BINDING", token }, ports: [{ postMessage: ack }] }); expect(ack).toHaveBeenCalledWith({ type: "PUSH_BINDING_ACK", token });
+    await push(crypto.randomUUID()); expect(worker.showNotification).not.toHaveBeenCalled();
+    await push(token); expect(worker.showNotification).toHaveBeenCalledWith("Nhà Mình", expect.objectContaining({ body: "Có điều mới trong Nhà.", tag: eventId }));
+    await event("message", { data: { type: "CLEAR_PUSH_BINDING" }, ports: [{ postMessage: ack }] });
+    await push(token); expect(worker.showNotification).toHaveBeenCalledTimes(1); expect(worker.closeNotification).toHaveBeenCalledTimes(2);
+  });
   it("caches only versioned public Whiteboard font assets without session cookies", async () => {
     const worker = harness();
     const path = "/vendor/excalidraw-0.18.1/fonts/Excalifont/Excalifont-Regular-a88b72a24fb54c9f94e3b5fdaa7481c9.woff2";
@@ -112,7 +136,7 @@ describe("public service-worker caching boundary", () => {
 
   it("serves a public offline fallback without persisting authenticated navigations", async () => {
     const worker = harness();
-    const shell = await worker.caches.open("nha-minh-public-shell-v1");
+    const shell = await worker.caches.open("nha-minh-public-shell-v2-baseline");
     await shell.put("/offline.html", new Response("generic offline shell"));
     worker.fetchMock.mockResolvedValueOnce(new Response("private letter"));
     expect(await (await worker.dispatchFetch("/letters/secret", undefined, true))?.text()).toBe("private letter");
@@ -127,7 +151,7 @@ describe("public service-worker caching boundary", () => {
     worker.listeners.get("install")?.({ waitUntil: (work: Promise<unknown>) => { installed = work; } });
     await installed;
 
-    const paths = [...worker.content.get("nha-minh-public-shell-v1")?.keys() ?? []].map((url) => new URL(url).pathname);
+    const paths = [...worker.content.get("nha-minh-public-shell-v2-baseline")?.keys() ?? []].map((url) => new URL(url).pathname);
     expect(paths).toEqual(["/offline.html", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/maskable-512.png", "/icons/apple-touch-icon.png"]);
     expect(worker.fetchMock.mock.calls.every(([request]) => request.credentials === "omit")).toBe(true);
     expect(worker.skipWaiting).not.toHaveBeenCalled();

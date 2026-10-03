@@ -8,4 +8,10 @@ const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "build
   env: { ...process.env, NEXT_PUBLIC_SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "" },
 });
 child.on("error", (error) => { console.error(error); process.exitCode = 1; });
-child.on("exit", (code) => { process.exitCode = code ?? 1; });
+child.on("exit", async (code) => {
+  process.exitCode = code ?? 1;
+  if (code === 0) {
+    try { await import("./prepare-offline-build.mjs"); }
+    catch (error) { console.error(error); process.exitCode = 1; }
+  }
+});

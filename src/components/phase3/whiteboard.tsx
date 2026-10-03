@@ -1,6 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
-export type WhiteboardProps = { accountId: string; houseId: string; onClose: () => void };
+export type WhiteboardProps = { accountId: string; houseId: string; onClose: () => void; syncEnabled?: boolean };
 declare global { interface Window { EXCALIDRAW_ASSET_PATH?: string } }
 const Editor = dynamic(async () => {
   window.EXCALIDRAW_ASSET_PATH = "/vendor/excalidraw-0.18.1/";

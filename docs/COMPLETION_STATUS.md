@@ -1,107 +1,79 @@
 # Mức độ hoàn thành V1 — 2026-10-03
 
-Đối chiếu `AGENTS.md`, `PRODUCT_SPEC.md`, `ROADMAP.md` và các hợp đồng trong
-`docs/` với code main `f583441`. **Đợt tích hợp đã hoàn tất; sản phẩm V1 chưa đủ
-điều kiện chốt phát hành.** Có màn hình và có tests không đồng nghĩa với đã hoàn
-thành mọi yêu cầu hoặc đã chạy được trên Supabase thật.
+Đợt completion đã nối Bảng Chung, sổ kỷ niệm/cột mốc trên Đảo, private voice,
+phục hồi offline từ lúc mở app và core thông báo nền. Giữ nguyên V1 và các quyền
+đã được người dùng chốt. Code đã qua các gates bên dưới; **chưa chốt phát hành
+production** khi hosted schema/config và thiết bị thật còn cần xác nhận.
 
-Không dùng một phần trăm tổng để che các khoảng trống về tính năng, dữ liệu và
-nghiệm thu. Bảng dưới phân biệt code hiện có với phần còn phải làm.
+## Những khoảng trống đã xử lý
 
-## Preview báo ngoại tuyến
+| Hạng mục | Bản tích hợp hiện tại |
+| --- | --- |
+| Vào Bảng từ Nhà | Route `/board` kiểm tra auth/paired House; lỗi schema có retry và lối mở bản nháp, không giả một bảng trống có thể ghi |
+| Bảng mixed content | Note/sticker, link, photo, voice, Excalidraw doodle; nội dung thật, move/rotate, shared edits, creator-only trash/restore |
+| Board retry/race | CAS draft, immutable queue/receipts; khóa vật dụng ngay khi bắt đầu lưu; reconnect/verification giữ cùng local writer; không ghi đè bản người kia |
+| Đảo | Memory xác nhận trước khi lưu, nguồn game đã hoàn thành cùng House, milestone theo ngày lịch, edit/trash/restore, pagination và conflict |
+| Island progression | Producer DB phát MEMORY_CREATED/MILESTONE_CREATED và weekly activity; world state suy ra từ ledger; không client increment, currency, decay hay XP |
+| Media | Private photo normalization và PCM WAV voice tối đa 60 giây/4 MiB, gesture microphone, authorized no-store playback/range |
+| Cold offline | Public `/offline` với code/fonts precache; namespace account/House được xác nhận gần nhất; recent content và note/doodle drafts/queue |
+| Reconnect/logout | Xác nhận identity trước transport; 401/403/đổi House đóng nội dung; giữ nháp khi network hỏng; logout epoch và push binding ngăn callback muộn |
+| Background notifications | Opt-in subscription, owner-only RLS, service-only leased outbox cho Knock/thư/lượt game, giờ yên tĩnh, generic payload; cần cấu hình server/scheduler |
 
-Lúc bắt đầu kiểm tra, `http://127.0.0.1:3101/` từ chối kết nối: server preview
-không chạy. Service worker có thể trả trang dự phòng khi server không truy cập
-được, ngay cả khi thiết bị vẫn có mạng. Trang dự phòng hiện ghi “Thiết bị đang
-ngoại tuyến”, nên chưa phân biệt đúng hai tình huống này.
+Auth, pairing, Presence/expiry, Knock, Whiteboard, bốn game và Letters đã có từ
+baseline. Đợt này giữ nguyên các state machine/quyền đó và chạy lại regression.
+Letters “mở cùng nhau” vẫn cần cả hai online trong cùng phiên; memory không lấy
+nội dung thư niêm phong. Board dùng năm loại persistence đã chốt; không thêm
+engine địa điểm/đếm ngược/nhiệm vụ mới hoặc các tính năng V2.
 
-Đã khởi động lại bằng `pnpm dev --hostname 127.0.0.1 --port 3101`; Next báo Ready
-và GET `/` trả HTTP 200, có nội dung app thay vì HTML dự phòng. Trong tab đang
-mở, bấm **Thử mở lại** hoặc tải lại trang. Server local cần tiếp tục chạy để dùng
-preview; push lên GitHub không tạo một server hay deployment đang hoạt động.
+## Bằng chứng kiểm thử bản tích hợp
 
-Công cụ điều khiển tab lỗi khởi tạo kernel, nên lần này chưa quan sát được tab
-đang đăng nhập của người dùng. HTTP 200 xác nhận server đã trở lại, chưa xác
-nhận phiên đăng nhập/House hiện tại hoặc `navigator.onLine` của tab đó.
-Không xóa cache, cookie, IndexedDB hay bản nháp để xử lý sự cố này.
+- `pnpm lint`: pass, không warning.
+- `pnpm typecheck`: pass.
+- `pnpm test --maxWorkers=1`: **670 tests / 77 files**, pass.
+- `pnpm build:e2e`: production build pass; route offline là public static shell.
+- `pnpm test:e2e --workers=2`: **210 tests**, pass trên desktop Chromium,
+  iPhone 12 WebKit và Android Chromium, runner exit 0. Windows bị kẹt bước đóng
+  server test sau khi tất cả assertions qua; chỉ các server test 3100/3103 của
+  lượt chạy đã được dọn để runner kết thúc. Không tắt/bỏ qua tests.
+- Đã xem screenshot Board iPhone: tiếng Việt, status, card và toolbar; thao tác
+  editor/trash/reconnect được chạy qua browser tests với transport fixture.
+- PostgreSQL/PGlite tests thử RLS, quyền creator, receipt/replay, source guards,
+  scheduled notification eligibility, rollback và nâng cấp Phase 2 có dữ liệu.
+- Bộ nâng cấp giữ House/Knock/mascot cũ, cài đầy đủ schema mới trong một transaction
+  và từ chối chạy lại; fresh-project artifact cũng chứa toàn bộ canonical chain.
 
-## Theo từng hạng mục
+Build E2E để trống public Supabase config, độc lập với `.env.local`.
+UI fixtures dùng component/domain thật và IndexedDB thật nhưng HTTP/auth transport
+mô phỏng. Đây không phải nghiệm thu hosted Supabase, push thật hoặc PWA vật lý.
+Code/ảnh/font precache khoảng 10 MiB; không chứa private HTML/API/media.
 
-| Hạng mục V1 | Đã có | Còn thiếu hoặc chưa nghiệm thu |
-| --- | --- | --- |
-| Auth | Google login, verified identity, cookie refresh, profile/nickname | Người dùng đã thử hai tài khoản ở bản trước; cần thử lại các route mới trên build hiện tại |
-| Pairing / House | Invite một lần, giới hạn hai thành viên, authorization/RLS, identity thỏ/cú theo thành viên | Kiểm tra schema hosted hiện có và chạy lại hai viewer trên build mới |
-| Home | Phòng, ngày/đêm, linh vật và lối vào các màn thật | Nghiệm thu trên PWA cài ở iPhone/Android thật |
-| Presence | Các trường trạng thái, expiry, version/conflict, quyền theo House | Cập nhật/đọc hai chiều và expiry trên Supabase thật |
-| Knock | Note/sticker, inbox, retry, settings/quiet hours/privacy và foreground notification | Delivery hai chiều trên bản hiện tại; chưa có Web Push nền |
-| Shared Board | Note/sticker, move/rotate, domain/RLS, draft/queue và conflict recovery | **UI tạo link/photo/audio/doodle chưa hoàn chỉnh**; photo/audio/doodle chưa render nội dung thực trong Board; thao tác trash/restore còn ở domain, chưa có UI sản phẩm |
-| Whiteboard | Excalidraw, các công cụ V1, snapshot/version, draft/offline và conflict | Migration hosted, thử hai tài khoản, touch và vòng đời PWA trên thiết bị thật |
-| Bốn games | UI và core của Doodle Relay, Draw & Guess, One-line Story, Photo Mission; turn validation/RLS, artifacts, draft/reconnect | Hosted schema và nghiệm thu đủ bốn game; Photo Mission cần cấu hình media server/private Storage thật |
-| Letters | Gửi ngay/hẹn giờ, clue/sealed, quyền đọc theo actor, mở cùng nhau với cả hai online trong cùng phiên | Migration hosted; gửi/mở/expiry/reconnect bằng hai tài khoản thật; chưa có delivery notification sender |
-| Shared Island | Ledger và state được suy ra từ nguồn game/mission/weekly activity; mở lại artifacts đã hoàn thành | **Chưa persistence/producer cho Memory và Milestone**, chưa có promotion Memory qua xác nhận của người dùng |
+## Hosted và cấu hình còn cần xác nhận
 
-Board không được tính là hoàn tất chỉ vì domain đã hỗ trợ các loại object. Toolbar
-hiện chỉ tạo note/sticker; các loại photo/audio/doodle mới có nhãn thay cho nội
-dung. Xem [Board UI](../src/components/phase3/board.tsx) và
-[kế hoạch Phase 3](PHASE3_REVIEW.md). Quyền đã chốt vẫn giữ nguyên: cả hai sửa;
-chỉ người tạo đưa vào thùng rác và khôi phục; không có purge vĩnh viễn.
+Người dùng báo đã chạy `upgrade-phase2-to-v1.sql` thành công. Public REST probe
+tại đúng host `uhifeugjfkzqljqiwlbj.supabase.co` vẫn trả PGRST205 cho Board sau
+đó. Vì vậy chưa khẳng định schema mới đã hiện trong REST hay luồng đăng nhập
+thật đã dùng được; câu hỏi xác minh `to_regclass` trong SQL Editor đang chờ
+kết quả. Không bỏ guard hay nới RLS để vượt lỗi này.
 
-Memory/Milestone là nguồn tăng trưởng của Island trong phạm vi hiện tại, không
-phải cớ để thêm Museum, AI recap hoặc tính năng backlog. Hợp đồng event vẫn
-reserved cho đến khi có dữ liệu nguồn được authorize và persist:
-[Island domain](ISLAND_DOMAIN.md).
+Máy hiện tại chưa có `SUPABASE_SECRET_KEY` phía server; upload photo/voice chưa
+được nghiệm thu. Chỉ ghi secret vào ignored `.env.local` hoặc deployment secrets,
+không vào chat/Git/`NEXT_PUBLIC_*`. VAPID và scheduler chưa được cấu hình, nên
+chưa có bằng chứng background delivery hoạt động trên thiết bị thật.
 
-## Các phần xuyên suốt
+Thứ tự nghiệm thu tiếp:
 
-- **Offline/PWA: một phần.** Có public app shell, recent cache theo account/House,
-  draft/queue và reconnect cho các luồng đã triển khai. Các thao tác nhạy cảm như
-  gửi/mở thư vẫn cần online. Mở lại private workspace từ đầu khi mất mạng hiện
-  nhận public fallback; chưa có cold-offline recovery hoàn chỉnh. Không cache
-  authenticated HTML/API/media để vượt ranh giới privacy.
-- **Media: Photo Mission có code/UI.** Máy hiện tại có public Supabase config,
-  nhưng chưa cấu hình `SUPABASE_SECRET_KEY` phía server. Không suy ra rằng hosted
-  migration/private bucket đã được cài từ kết quả tests local. Board audio còn
-  thiếu pipeline/UI; không gộp phần thiếu code này vào “chỉ chờ deploy”.
-- **Notifications: abstraction/preferences và foreground Knock đã có.** Chưa
-  triển khai Web Push subscription/server sender hoặc delivery notifier cho thư
-  và game. Không quảng cáo thông báo nền hoạt động. Các loại thông báo được phép
-  không đồng nghĩa mọi loại đều đã được triển khai.
-- **Privacy/security: có kiểm thử authorization/RLS theo domain.** Hosted Storage
-  và cạnh tranh transaction từ các kết nối PostgreSQL độc lập còn phải nghiệm
-  thu; PGlite tests không chứng minh hai điều đó.
+1. Xác nhận bảng trong đúng project và REST schema cache; thử Bảng/Đảo bằng hai
+   account thật trên bản code hiện tại.
+2. Cấu hình server Secret; thử upload/read photo/voice, creator trash/restore và
+   outsider denial với private Storage thật.
+3. Cấu hình VAPID/dispatcher; thử app đóng, scheduled delivery, quiet hours,
+   disable/logout/account switch.
+4. Chạy closed-app offline/reconnect, touch/voice và vòng đời installed PWA trên
+   iPhone/Android thật; stress race với các kết nối PostgreSQL độc lập.
+5. Deployment và CI của commit main mới cần được xác nhận riêng; git push
+   không tạo deployment.
 
-## Bằng chứng kiểm thử
-
-Kết quả của **code baseline `f583441`**, đã chạy trong đợt tích hợp trước:
-
-- Lint: pass, không warning.
-- Typecheck: pass.
-- Unit/integration: **568/568**, 59 files.
-- Production test build: pass (`pnpm build:e2e`).
-- Playwright: **174/174**, desktop Chromium, iPhone 12 WebKit và Android Chromium.
-- Manual browser/visual review dùng fixtures cho Home/Games/Letters/Island/
-  Whiteboard, desktop và viewport iPhone; không dùng hai account hosted thật.
-- GitHub CI của cùng commit đã được xác nhận thành công ở đợt bàn giao:
-  [CI run](https://github.com/Anduong1200/nh-m-nh/actions/runs/37112482009).
-
-Chi tiết và giới hạn: [V1 integration review](V1_INTEGRATION_REVIEW.md).
-Lần báo cáo này chỉ đối chiếu source, kiểm tra cấu hình theo cờ có/không và
-khởi động/kiểm tra HTTP preview; không chạy lại bộ lint/typecheck/tests/build/E2E.
-Thay đổi của lần báo cáo này chỉ là tài liệu, không đổi runtime/schema.
-
-## Thứ tự để chốt V1
-
-1. Hoàn thiện các khoảng trống code đã có trong V1: Board mixed content và UI
-   trash/restore, Memory/Milestone source + confirmed promotion, cold-offline
-   recovery. Không tự thêm backlog.
-2. Đối chiếu migration history của Supabase thật; chỉ áp dụng phần additive còn
-   thiếu. Cấu hình server media secret và kiểm tra private Storage. Không chạy
-   lại bootstrap/reset project đang có dữ liệu.
-3. Nghiệm thu bằng hai tài khoản thật: đủ bốn games + artifacts, thư thường/hẹn
-   giờ/mở cùng nhau, Board/Whiteboard conflict, quyền outsider/cross-House,
-   logout/account switch và reconnect.
-4. Kiểm tra installed PWA trên iPhone/Android thật; chạy lại các gate bắt buộc sau
-   thay đổi implementation rồi mới chốt phát hành.
-
-Chưa deploy, chưa tự áp dụng hosted schema, chưa cấu hình secret, chưa xóa dữ
-liệu và chưa thực hiện các phần implementation còn thiếu trong lần báo cáo này.
+Xem [hosted setup](V1_HOSTED_SETUP.md),
+[private media](PRIVATE_MEDIA.md),
+[background notifications](BACKGROUND_NOTIFICATIONS.md) và
+[ADR 004](ADR/004-cold-offline-and-background-delivery.md).

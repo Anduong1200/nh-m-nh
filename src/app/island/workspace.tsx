@@ -6,14 +6,19 @@ import { listGameSessionsAction } from "@/modules/games/actions";
 import { IslandClient, parseIslandView, type IslandTransport, type IslandView } from "@/modules/island/client";
 import type { GameContext } from "@/modules/games/model";
 import { SharedIsland } from "@/components/phase4/shared-island";
+import { IslandJournal } from "@/components/phase4/island-journal";
+import { applyIslandEntryAction, readIslandEntryAction, readIslandJournalAction } from "@/modules/island/journal-actions";
+import type { IslandJournalTransport } from "@/modules/island/journal-client";
 
 const productionTransport: IslandTransport = { read: readIslandStateAction, list: listGameSessionsAction };
+const journalProductionTransport: IslandJournalTransport = { read: readIslandJournalAction, entry: readIslandEntryAction, write: applyIslandEntryAction };
 
-export function IslandWorkspace({ context, initialView, initialError = null, transport = productionTransport }: {
+export function IslandWorkspace({ context, initialView, initialError = null, transport = productionTransport, journalTransport = journalProductionTransport }: {
   context: GameContext;
   initialView: IslandView | null;
   initialError?: string | null;
   transport?: IslandTransport;
+  journalTransport?: IslandJournalTransport;
 }) {
   const [view, setView] = useState<IslandView | null>(() => parseIslandView(initialView, context));
   const [cached, setCached] = useState(false);
@@ -87,5 +92,12 @@ export function IslandWorkspace({ context, initialView, initialError = null, tra
     };
   }, [context, initialView, invalidate, refresh, transport]);
 
-  return <SharedIsland view={view} cached={cached} busy={busy} error={error} blocked={blocked} onRefresh={() => void refresh()} />;
+  const onJournalBlocked = useCallback(() => {
+    invalidate(); client.current?.stop(); client.current = null; refreshing.current = false;
+    setView(null); setCached(false); setBusy(false); setBlocked(true); setError("Cần xác nhận lại quyền vào Nhà.");
+  }, [invalidate]);
+  const onJournalChanged = useCallback(() => { void refresh(); }, [refresh]);
+  return <SharedIsland view={view} cached={cached} busy={busy} error={error} blocked={blocked} onRefresh={() => void refresh()}>
+    <IslandJournal context={context} artifacts={view?.artifacts ?? []} transport={journalTransport} blocked={blocked} onChanged={onJournalChanged} onBlocked={onJournalBlocked} />
+  </SharedIsland>;
 }

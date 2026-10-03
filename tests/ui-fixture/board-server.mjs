@@ -21,12 +21,13 @@ export async function handleBoardFixture(request, response, url) {
   if (receipt && (receipt.actorId !== actorId || receipt.request !== JSON.stringify(op))) { send({ blocked: true }, 403); return true; }
   if (!receipt) {
     const previous = state.items.get(op.id);
+    if ((op.mutation === "trash" || op.mutation === "restore") && previous?.createdBy !== actorId) { send({ blocked: true }, 403); return true; }
     const conflict = op.mutation !== "append" && previous?.version !== op.expectedVersion;
     if ((op.mutation === "append" && previous) || (op.mutation !== "append" && !previous)) { send({ error: "Invalid test operation" }, 409); return true; }
     const item = conflict ? previous : { id: op.id, houseId, createdBy: previous?.createdBy ?? actorId, type: previous?.type ?? op.data.type,
-      payload: op.data.payload ?? previous?.payload, mediaId: null, x: op.data.x ?? previous?.x ?? 0, y: op.data.y ?? previous?.y ?? 0,
+      payload: op.data.payload ?? previous?.payload, mediaId: op.data.mediaId ?? previous?.mediaId ?? null, x: op.data.x ?? previous?.x ?? 0, y: op.data.y ?? previous?.y ?? 0,
       rotation: op.data.rotation ?? previous?.rotation ?? 0, zIndex: op.data.zIndex ?? previous?.zIndex ?? 0,
-      version: (previous?.version ?? 0) + 1, createdAt: previous?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString(), deletedAt: null };
+      version: (previous?.version ?? 0) + 1, createdAt: previous?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString(), deletedAt: op.mutation === "trash" ? new Date().toISOString() : op.mutation === "restore" ? null : previous?.deletedAt ?? null };
     receipt = { operationId: op.operationId, actorId, houseId, outcome: conflict ? "conflict" : "applied", item: structuredClone(item), request: JSON.stringify(op) };
     state.receipts.set(op.operationId, receipt);
     if (!conflict) state.items.set(op.id, item);

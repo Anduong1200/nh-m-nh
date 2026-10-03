@@ -4,6 +4,15 @@
 
 The scrapbook UI now uses schema-2 drafts and `BoardSyncSession` through authenticated action adapters. Creating, typing, moving and rotating a note keeps a local draft; **Lưu ghi chú** queues one immutable append/update. A queued note is held until an exact receipt acknowledges it. Draft CAS versions are independent of server versions. Reopening restores drafts and verified server/cache content. Explicit conflict choices retain local proposals; choosing the local proposal uses the version displayed in the conflict, so a newer unseen edit produces another conflict.
 
+V1 completion adds the protected `/board` entry from Home, actual link/photo/voice
+and Excalidraw doodle editors/renderers, move/rotate and creator-only trash/restore
+UI. Media/link creation needs connectivity; notes/doodles can queue locally.
+Unknown trash/restore retries retain the original operation. Items are locked
+from the start of a save until receipt reconciliation, including local persistence
+before enqueue. Toggling recovery verification keeps the same serialized local
+writer and pauses transport instead of reopening storage. Missing schema renders
+a retry/recovery state rather than a writable empty board.
+
 Background sync runs on mount, queue events and reconnect without a state-driven polling loop. Legacy queues are held for explicit recovery. Test-only HTTP adapters are isolated from the production authorization path. UI E2E uses real IndexedDB on Chromium desktop, iPhone WebKit and Android Chromium; PostgreSQL authorization is tested separately.
 
 Branch: `feature/board-domain`. Scope: persisted Board objects, House authorization, private media references, versions/retries, and a durable note/doodle sync engine. UI composition belongs to `feature/board-ui`; this branch does not redesign the room or add V1 features.
@@ -113,7 +122,7 @@ Intentional logout clears content for that account and advances a persistent epo
 
 `media_objects` contains private metadata and a canonical `House UUID/media UUID` path in the fixed `nha-minh-private` bucket. Photos accept JPEG/PNG/WebP; audio accepts MPEG/MP4/OGG/WebM/WAV, up to 60 seconds. Both are bounded to 20 MiB. Ready metadata requires size, MIME and applicable duration. Both members can reference verified ready media; pending/error metadata is owner-visible only. The caller cannot register external URLs or mark uploads ready. `getMediaReference` verifies the current House and returns no signed/public URL.
 
-This workstream implements **references**, not upload/playback. It does not create a Storage bucket, Storage policies, signing endpoints, upload permissions or byte-inspection pipeline. A trusted future media handler must validate the actual bytes, bind canonical keys to the same House, create a private bucket with House access policies, and mark metadata ready only after verification. Keep photo/voice creation controls disabled until that pipeline is integrated. No service-role credential appears in client code.
+The Board domain retains references only. The integrated private media pipeline now validates photo/PCM voice bytes, verifies House membership, writes to a private bucket and registers metadata service-side. `/media/[id]` uses requester RLS and no-store playback. Uploads require server configuration; failures never create pretend attachments. No service-role credential appears in client code. See [private media](PRIVATE_MEDIA.md).
 
 ## Apply the schema
 

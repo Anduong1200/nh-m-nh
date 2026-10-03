@@ -191,7 +191,7 @@ test("notification preferences explain foreground limits and preserve private de
   await page.getByRole("button", { name: "Nhịp thông báo", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Theo nhịp của mình" });
   await expect(dialog.getByLabel(/Hiện lời nhắn hoặc nhãn dán/)).not.toBeChecked();
-  await expect(dialog.getByText(/Chưa có thông báo nền khi đóng ứng dụng/)).toBeVisible();
+  await expect(dialog.getByText(/Báo cú gõ mới khi Nhà đang mở và hiển thị/)).toBeVisible();
   await dialog.getByLabel("Dành một khoảng giờ yên tĩnh").check();
   await dialog.getByLabel("Từ lúc").fill("22:00");
   await dialog.getByLabel("Đến lúc").fill("07:00");

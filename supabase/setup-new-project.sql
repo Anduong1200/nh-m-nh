@@ -2090,5 +2090,398 @@ revoke all on function public.register_verified_photo(uuid,uuid,uuid,bigint) fro
 grant execute on function public.register_verified_photo(uuid,uuid,uuid,bigint) to service_role;
 
 
+-- Source: 20261003015000_private_voice.sql
+-- Additive voice registration. Requires the existing private photo pipeline.
+do $guard$
+begin
+  if to_regprocedure('public.register_verified_photo(uuid,uuid,uuid,bigint)') is null
+    or not exists(select 1 from pg_policies where schemaname='storage' and tablename='objects' and policyname='nha_minh_private_photo_read_guard') then
+    raise exception 'Private photo pipeline required. No data changed.';
+  end if;
+  if not exists(select 1 from storage.buckets where id='nha-minh-private' and not public) then
+    raise exception 'Private media bucket required. No data changed.';
+  end if;
+end;
+$guard$;
+
+-- Keep the established 4 MiB bound and existing allowed types; add only PCM WAV.
+update storage.buckets
+set allowed_mime_types=case when allowed_mime_types is null then array['image/jpeg','audio/wav']
+  when not ('audio/wav'=any(allowed_mime_types)) then array_append(allowed_mime_types,'audio/wav') else allowed_mime_types end
+where id='nha-minh-private' and not public;
+
+create policy nha_minh_private_voice_read on storage.objects for select to authenticated
+using(bucket_id='nha-minh-private' and exists(
+  select 1 from public.media_objects m where m.bucket_id=storage.objects.bucket_id
+    and m.storage_path=storage.objects.name and m.media_type='audio' and m.mime_type='audio/wav'
+    and m.state='ready' and public.is_house_member(m.house_id)
+));
+-- Preserve the restrictive boundary against unrelated permissive policies.
+alter policy nha_minh_private_photo_read_guard on storage.objects
+using(bucket_id<>'nha-minh-private' or exists(
+  select 1 from public.media_objects m where m.bucket_id=storage.objects.bucket_id
+    and m.storage_path=storage.objects.name and (m.media_type='photo' or (m.media_type='audio' and m.mime_type='audio/wav'))
+    and m.state='ready' and public.is_house_member(m.house_id)
+));
+-- Authenticated/anonymous INSERT, UPDATE and DELETE guards remain untouched.
+
+create function public.register_verified_voice(p_id uuid,p_house_id uuid,p_actor_id uuid,p_size bigint,p_duration numeric)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare result public.media_objects; object_size bigint;
+begin
+  if p_id is null or p_actor_id is null or p_size is null or p_size<45 or p_size>4194304
+    or p_duration is null or p_duration<=0 or p_duration>60 then raise exception 'Invalid voice'; end if;
+  perform 1 from public.houses where id=p_house_id and state='active' for update;
+  if not found then raise exception 'House access denied' using errcode='42501'; end if;
+  perform 1 from public.house_members where house_id=p_house_id and status='active' order by user_id for share;
+  if (select count(*) from public.house_members where house_id=p_house_id and status='active')<>2
+    or not exists(select 1 from public.house_members where house_id=p_house_id and user_id=p_actor_id and status='active') then
+    raise exception 'House access denied' using errcode='42501';
+  end if;
+  select (o.metadata->>'size')::bigint into object_size from storage.objects o
+    join storage.buckets b on b.id=o.bucket_id and not b.public
+    where o.bucket_id='nha-minh-private' and o.name=p_house_id::text||'/'||p_id::text
+      and o.metadata->>'mimetype'='audio/wav' for share of o;
+  if object_size is null or object_size<>p_size then raise exception 'Uploaded bytes not confirmed'; end if;
+  insert into public.media_objects(id,house_id,owner_id,media_type,bucket_id,storage_path,state,mime_type,size_bytes,duration_seconds)
+    values(p_id,p_house_id,p_actor_id,'audio','nha-minh-private',p_house_id::text||'/'||p_id::text,'ready','audio/wav',p_size,p_duration)
+    returning * into result;
+  return to_jsonb(result);
+end;
+$$;
+revoke all on function public.register_verified_voice(uuid,uuid,uuid,bigint,numeric) from public,anon,authenticated;
+grant execute on function public.register_verified_voice(uuid,uuid,uuid,bigint,numeric) to service_role;
+
+
+-- Source: 20261003020000_island_journal.sql
+-- Shared, user-confirmed memories and milestones. Ledger history is never a
+-- mutable progress score; editing/trashing/restoring a page adds no events.
+create table public.island_entries (
+  id uuid primary key,
+  house_id uuid not null references public.houses(id),
+  created_by uuid not null references auth.users(id),
+  entry_type text not null check(entry_type in ('memory','milestone')),
+  title text not null check(length(btrim(title)) > 0 and length(title) <= 120),
+  body text not null default '' check(length(body) <= 4000),
+  occurred_on date not null,
+  source_session_id uuid,
+  version integer not null default 1 check(version > 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now() check(updated_at >= created_at),
+  trashed_at timestamptz,
+  unique(house_id,id),
+  foreign key(house_id,source_session_id) references public.game_artifacts(house_id,session_id),
+  check(source_session_id is null or entry_type = 'memory')
+);
+create unique index island_memory_source_once on public.island_entries(house_id,source_session_id) where source_session_id is not null;
+create index island_entries_history on public.island_entries(house_id,created_at desc,id desc);
+alter table public.island_entries enable row level security;
+revoke all on public.island_entries from public,anon,authenticated;
+grant select on public.island_entries to authenticated;
+create policy island_entries_read on public.island_entries for select to authenticated using(public.is_house_member(house_id));
+
+create table public.island_entry_operations (
+  actor_id uuid not null references auth.users(id),
+  operation_id uuid not null,
+  house_id uuid not null references public.houses(id),
+  command jsonb not null,
+  receipt jsonb not null,
+  created_at timestamptz not null default now(),
+  primary key(actor_id,operation_id)
+);
+alter table public.island_entry_operations enable row level security;
+revoke all on public.island_entry_operations from public,anon,authenticated;
+grant select on public.island_entry_operations to authenticated;
+create policy island_entry_operations_read on public.island_entry_operations for select to authenticated using(actor_id = auth.uid() and public.is_house_member(house_id));
+
+alter table public.island_events add column journal_entry_id uuid;
+alter table public.island_events add constraint island_event_journal_source_fk foreign key(house_id,journal_entry_id) references public.island_entries(house_id,id);
+alter table public.island_events add constraint island_event_journal_source_check check(
+  (event_type in ('MEMORY_CREATED','MILESTONE_CREATED') and journal_entry_id is not null and source_id = journal_entry_id::text)
+  or (event_type not in ('MEMORY_CREATED','MILESTONE_CREATED') and journal_entry_id is null)
+);
+
+create function public.island_entry_json(p_entry public.island_entries)
+returns jsonb language sql immutable security invoker set search_path = '' as $$
+  select jsonb_build_object('id',p_entry.id,'houseId',p_entry.house_id,'createdBy',p_entry.created_by,
+    'entryType',p_entry.entry_type,'title',p_entry.title,'body',p_entry.body,
+    'occurredOn',to_char(p_entry.occurred_on,'YYYY-MM-DD'),'sourceSessionId',p_entry.source_session_id,
+    'version',p_entry.version,'createdAt',p_entry.created_at,'updatedAt',p_entry.updated_at,'trashedAt',p_entry.trashed_at);
+$$;
+revoke all on function public.island_entry_json(public.island_entries) from public,anon,authenticated;
+
+create function public.get_island_entries(p_house_id uuid, p_before_created_at timestamptz default null, p_before_id uuid default null)
+returns jsonb language plpgsql stable security definer set search_path = '' as $$
+declare items jsonb; cursor_at timestamptz; cursor_id uuid; has_more boolean;
+begin
+  if auth.uid() is null or not public.is_house_member(p_house_id) then raise exception 'House access required' using errcode = '42501'; end if;
+  if (p_before_created_at is null) <> (p_before_id is null) then raise exception 'Invalid cursor' using errcode = '22023'; end if;
+  select coalesce(jsonb_agg(public.island_entry_json(e) order by e.created_at desc,e.id desc),'[]'::jsonb)
+  into items from (select * from public.island_entries where house_id = p_house_id
+    and (p_before_created_at is null or (created_at,id) < (p_before_created_at,p_before_id)) order by created_at desc,id desc limit 20) e;
+  if jsonb_array_length(items) > 0 then
+    cursor_at := (items -> (jsonb_array_length(items)-1) ->> 'createdAt')::timestamptz;
+    cursor_id := (items -> (jsonb_array_length(items)-1) ->> 'id')::uuid;
+    select exists(select 1 from public.island_entries where house_id = p_house_id and (created_at,id) < (cursor_at,cursor_id)) into has_more;
+  end if;
+  return jsonb_build_object('entries',items,'next',case when has_more then jsonb_build_object('createdAt',cursor_at,'id',cursor_id) else null end);
+end;
+$$;
+revoke all on function public.get_island_entries(uuid,timestamptz,uuid) from public,anon,authenticated;
+grant execute on function public.get_island_entries(uuid,timestamptz,uuid) to authenticated;
+
+create function public.get_island_entry(p_house_id uuid,p_entry_id uuid)
+returns jsonb language plpgsql stable security definer set search_path = '' as $$
+declare e public.island_entries;
+begin
+  if auth.uid() is null or not public.is_house_member(p_house_id) then raise exception 'House access required' using errcode = '42501'; end if;
+  select * into e from public.island_entries where house_id = p_house_id and id = p_entry_id;
+  if not found then return null; end if;
+  return public.island_entry_json(e);
+end;
+$$;
+revoke all on function public.get_island_entry(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.get_island_entry(uuid,uuid) to authenticated;
+
+create function public.apply_island_entry_command(p_house_id uuid,p_command jsonb)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare actor uuid := auth.uid(); entry_id uuid; v_operation_id uuid; expected integer; kind text;
+  payload jsonb; e public.island_entries; operation public.island_entry_operations; result jsonb;
+  event_name text; source_name text; source_id uuid; occurred date; outcome text := 'applied';
+begin
+  if actor is null then raise exception 'House access required' using errcode = '42501'; end if;
+  perform 1 from public.houses where id = p_house_id and state = 'active' for update;
+  if not found then raise exception 'House access required' using errcode = '42501'; end if;
+  perform 1 from public.house_members where house_id = p_house_id and status = 'active' order by user_id for share;
+  if not public.is_house_member(p_house_id) or (select count(*) from public.house_members where house_id = p_house_id and status = 'active') <> 2 then raise exception 'Paired House access required' using errcode = '42501'; end if;
+  if jsonb_typeof(p_command) <> 'object' or length(p_command::text) > 20000
+    or not p_command ?& array['operationId','entryId','expectedVersion','kind','payload']
+    or exists(select 1 from jsonb_object_keys(p_command) k where k not in ('operationId','entryId','expectedVersion','kind','payload'))
+    or jsonb_typeof(p_command->'operationId') <> 'string' or jsonb_typeof(p_command->'entryId') <> 'string'
+    or jsonb_typeof(p_command->'expectedVersion') <> 'number' or (p_command->>'expectedVersion') !~ '^[0-9]+$'
+    or jsonb_typeof(p_command->'kind') <> 'string' or jsonb_typeof(p_command->'payload') <> 'object' then raise exception 'Invalid journal command' using errcode = '22023'; end if;
+  v_operation_id := (p_command->>'operationId')::uuid; entry_id := (p_command->>'entryId')::uuid;
+  expected := (p_command->>'expectedVersion')::integer; kind := p_command->>'kind'; payload := p_command->'payload';
+  select * into operation from public.island_entry_operations where actor_id = actor and island_entry_operations.operation_id = v_operation_id;
+  if found then
+    if operation.house_id <> p_house_id or operation.command <> p_command then raise exception 'Operation identity changed' using errcode = '22023'; end if;
+    return operation.receipt;
+  end if;
+  if kind not in ('create','update','trash','restore') then raise exception 'Invalid journal command' using errcode = '22023'; end if;
+  if kind in ('create','update') then
+    if not payload ?& array['title','body','occurredOn'] or jsonb_typeof(payload->'title') <> 'string' or length(btrim(payload->>'title')) = 0 or length(payload->>'title') > 120
+      or jsonb_typeof(payload->'body') <> 'string' or length(payload->>'body') > 4000
+      or jsonb_typeof(payload->'occurredOn') <> 'string' or (payload->>'occurredOn') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then raise exception 'Invalid journal content' using errcode = '22023'; end if;
+    occurred := (payload->>'occurredOn')::date;
+    if to_char(occurred,'YYYY-MM-DD') <> payload->>'occurredOn' then raise exception 'Invalid calendar date' using errcode = '22023'; end if;
+  end if;
+  if kind = 'create' then
+    if expected <> 0 or not payload ?& array['entryType','sourceSessionId','confirmed']
+      or exists(select 1 from jsonb_object_keys(payload) k where k not in ('title','body','occurredOn','entryType','sourceSessionId','confirmed'))
+      or jsonb_typeof(payload->'entryType') <> 'string' or payload->>'entryType' not in ('memory','milestone')
+      or jsonb_typeof(payload->'confirmed') <> 'boolean' or (payload->>'entryType' = 'memory' and payload->'confirmed' <> 'true'::jsonb)
+      or jsonb_typeof(payload->'sourceSessionId') not in ('string','null')
+      or (payload->>'entryType' = 'milestone' and payload->'sourceSessionId' <> 'null'::jsonb) then raise exception 'Memory confirmation and valid source required' using errcode = '22023'; end if;
+    source_id := (payload->>'sourceSessionId')::uuid;
+    if source_id is not null then
+      perform 1 from public.game_sessions gs join public.game_artifacts a on a.house_id = gs.house_id and a.session_id = gs.id
+        where gs.id = source_id and gs.house_id = p_house_id and gs.status = 'completed' and gs.completed_at is not null for share of gs,a;
+      if not found then raise exception 'Completed shared artifact required' using errcode = '42501'; end if;
+    end if;
+    select * into e from public.island_entries where id = entry_id or (source_id is not null and house_id = p_house_id and source_session_id = source_id);
+    if found then
+      if e.house_id <> p_house_id then raise exception 'Journal access required' using errcode = '42501'; end if;
+      -- A concurrent promotion of the same source is an explicit conflict,
+      -- never a duplicate memory or silently substituted page identity.
+      raise exception 'Journal entry or memory source already exists' using errcode = '23505';
+    end if;
+    insert into public.island_entries(id,house_id,created_by,entry_type,title,body,occurred_on,source_session_id)
+      values(entry_id,p_house_id,actor,payload->>'entryType',payload->>'title',payload->>'body',occurred,source_id) returning * into e;
+    event_name := case e.entry_type when 'memory' then 'MEMORY_CREATED' else 'MILESTONE_CREATED' end;
+    source_name := case e.entry_type when 'memory' then 'confirmed-memory' else 'milestone' end;
+    insert into public.island_events(house_id,event_type,source_type,source_id,journal_entry_id,created_at)
+      values(p_house_id,event_name,source_name,e.id::text,e.id,e.created_at);
+    insert into public.island_events(house_id,event_type,source_type,source_id,created_at)
+      values(p_house_id,'WEEKLY_ACTIVITY','activity-week',to_char(date_trunc('week',e.created_at at time zone 'UTC'),'YYYY-MM-DD'),e.created_at) on conflict do nothing;
+  else
+    if expected < 1 then raise exception 'Expected version required' using errcode = '22023'; end if;
+    select * into e from public.island_entries where id = entry_id and house_id = p_house_id for update;
+    if not found then raise exception 'Journal access required' using errcode = '42501'; end if;
+    if kind in ('trash','restore') and (e.created_by <> actor or payload <> '{}'::jsonb) then raise exception 'Creator access required' using errcode = '42501'; end if;
+    if kind = 'update' and exists(select 1 from jsonb_object_keys(payload) k where k not in ('title','body','occurredOn')) then raise exception 'Source and creator are immutable' using errcode = '22023'; end if;
+    if e.version <> expected then outcome := 'conflict';
+    elsif (kind in ('update','trash') and e.trashed_at is not null) or (kind = 'restore' and e.trashed_at is null) then outcome := 'conflict';
+    else
+      update public.island_entries set
+        title = case when kind = 'update' then payload->>'title' else title end,
+        body = case when kind = 'update' then payload->>'body' else body end,
+        occurred_on = case when kind = 'update' then occurred else occurred_on end,
+        trashed_at = case when kind = 'trash' then now() when kind = 'restore' then null else trashed_at end,
+        version = version + 1, updated_at = greatest(now(),created_at)
+        where id = e.id returning * into e;
+    end if;
+  end if;
+  result := jsonb_build_object('operationId',v_operation_id,'entryId',entry_id,'outcome',outcome,'entry',public.island_entry_json(e));
+  insert into public.island_entry_operations(actor_id,operation_id,house_id,command,receipt) values(actor,v_operation_id,p_house_id,p_command,result);
+  return result;
+end;
+$$;
+revoke all on function public.apply_island_entry_command(uuid,jsonb) from public,anon,authenticated;
+grant execute on function public.apply_island_entry_command(uuid,jsonb) to authenticated;
+
+
+-- Source: 20261003030000_background_notifications.sql
+-- Explicit opt-in device subscriptions and private generic-only delivery outbox.
+create table public.push_subscriptions (
+  id uuid primary key default gen_random_uuid(), house_id uuid not null references public.houses(id),
+  owner_id uuid not null, endpoint text not null unique,
+  p256dh text not null check(p256dh ~ '^[A-Za-z0-9_-]{87}$'),
+  auth_key text not null check(auth_key ~ '^[A-Za-z0-9_-]{22}$'),
+  active boolean not null default true, enabled_at timestamptz not null default clock_timestamp(),
+  foreign key(house_id,owner_id) references public.house_members(house_id,user_id),
+  check(length(endpoint)<=2048 and endpoint ~ '^https://(fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|web\.push\.apple\.com)(:443)?/[^[:space:]#]+$')
+);
+alter table public.push_subscriptions enable row level security;
+revoke all on public.push_subscriptions from public,anon,authenticated;
+grant select on public.push_subscriptions to authenticated;
+create policy push_subscriptions_owner_read on public.push_subscriptions for select to authenticated
+using(owner_id=auth.uid() and public.is_house_member(house_id));
+
+create table public.push_outbox (
+  id uuid primary key default gen_random_uuid(), subscription_id uuid not null references public.push_subscriptions(id),
+  house_id uuid not null references public.houses(id), recipient_id uuid not null,
+  kind text not null check(kind in ('knock','letter-delivered','game-turn')), source_id uuid not null,
+  source_version integer not null default 0, not_before timestamptz not null,
+  status text not null default 'pending' check(status in ('pending','sending','sent','suppressed','cancelled','failed','expired')),
+  attempts integer not null default 0 check(attempts between 0 and 4),
+  lease_token uuid, lease_until timestamptz, retry_at timestamptz not null default clock_timestamp(),
+  created_at timestamptz not null default clock_timestamp(),
+  foreign key(house_id,recipient_id) references public.house_members(house_id,user_id),
+  unique(subscription_id,kind,source_id,source_version)
+);
+alter table public.push_outbox enable row level security;
+revoke all on public.push_outbox from public,anon,authenticated;
+create index push_outbox_pending on public.push_outbox(status,retry_at,not_before);
+
+create function public.enroll_push_subscription(p_house_id uuid,p_endpoint text,p_p256dh text,p_auth text)
+returns uuid language plpgsql security definer set search_path='' as $$
+declare actor uuid:=auth.uid(); current_row public.push_subscriptions;
+begin
+  if actor is null then raise exception 'Authentication required' using errcode='28000'; end if;
+  if public.current_house_id() is distinct from p_house_id then raise exception 'House denied' using errcode='42501'; end if;
+  perform 1 from public.houses where id=p_house_id and state='active' for update;
+  if not found then raise exception 'House denied' using errcode='42501'; end if;
+  perform 1 from public.house_members where house_id=p_house_id and status='active' order by user_id for share;
+  if (select count(*) from public.house_members where house_id=p_house_id and status='active')<>2 then raise exception 'Paired House required' using errcode='42501'; end if;
+  if p_endpoint is null or length(p_endpoint)>2048 or p_endpoint !~ '^https://(fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|web\.push\.apple\.com)(:443)?/[^[:space:]#]+$'
+    or p_p256dh is null or p_p256dh !~ '^[A-Za-z0-9_-]{87}$' or p_auth is null or p_auth !~ '^[A-Za-z0-9_-]{22}$' then raise exception 'Invalid subscription'; end if;
+  perform pg_advisory_xact_lock(hashtextextended('push_endpoint:'||p_endpoint,0));
+  select * into current_row from public.push_subscriptions where endpoint=p_endpoint for update;
+  if found then
+    if current_row.owner_id<>actor or current_row.house_id<>p_house_id then raise exception 'Subscription owned by another account' using errcode='42501'; end if;
+    update public.push_subscriptions set p256dh=p_p256dh,auth_key=p_auth,active=true,enabled_at=clock_timestamp() where id=current_row.id;
+    update public.push_outbox set status='cancelled' where subscription_id=current_row.id and status in ('pending','sending');
+    return current_row.id;
+  end if;
+  if (select count(*) from public.push_subscriptions where owner_id=actor and active)>=8 then raise exception 'Device limit reached'; end if;
+  insert into public.push_subscriptions(house_id,owner_id,endpoint,p256dh,auth_key)
+    values(p_house_id,actor,p_endpoint,p_p256dh,p_auth) returning * into current_row;
+  return current_row.id;
+end;
+$$;
+create function public.disable_push_subscription(p_house_id uuid,p_id uuid)
+returns boolean language plpgsql security definer set search_path='' as $$
+begin
+  if auth.uid() is null or public.current_house_id() is distinct from p_house_id then raise exception 'House denied' using errcode='42501'; end if;
+  if not exists(select 1 from public.push_subscriptions where id=p_id and owner_id=auth.uid() and house_id=p_house_id) then raise exception 'Subscription denied' using errcode='42501'; end if;
+  update public.push_subscriptions set active=false where id=p_id;
+  update public.push_outbox set status='cancelled' where subscription_id=p_id and status in ('pending','sending');
+  return true;
+end;
+$$;
+revoke all on function public.enroll_push_subscription(uuid,text,text,text),public.disable_push_subscription(uuid,uuid) from public,anon;
+grant execute on function public.enroll_push_subscription(uuid,text,text,text),public.disable_push_subscription(uuid,uuid) to authenticated;
+
+create function public.enqueue_private_push(p_house uuid,p_recipient uuid,p_kind text,p_source uuid,p_version integer,p_due timestamptz)
+returns void language sql security definer set search_path='' as $$
+  insert into public.push_outbox(subscription_id,house_id,recipient_id,kind,source_id,source_version,not_before)
+  select s.id,p_house,p_recipient,p_kind,p_source,p_version,p_due from public.push_subscriptions s
+  where s.active and s.owner_id=p_recipient and s.house_id=p_house
+    and exists(select 1 from public.house_members m where m.house_id=p_house and m.user_id=p_recipient and m.status='active')
+  on conflict(subscription_id,kind,source_id,source_version) do nothing
+$$;
+create function public.enqueue_knock_push() returns trigger language plpgsql security definer set search_path='' as $$
+begin perform public.enqueue_private_push(new.house_id,new.recipient_id,'knock',new.id,0,new.created_at); return new; end; $$;
+create function public.enqueue_letter_push() returns trigger language plpgsql security definer set search_path='' as $$
+begin perform public.enqueue_private_push(new.house_id,new.recipient_id,'letter-delivered',new.id,0,new.deliver_at); return new; end; $$;
+create function public.enqueue_game_turn_push() returns trigger language plpgsql security definer set search_path='' as $$
+begin
+  if new.status='active' and (tg_op='UPDATE' or new.current_turn_user_id<>new.created_by) then
+    perform public.enqueue_private_push(new.house_id,new.current_turn_user_id,'game-turn',new.id,new.version,clock_timestamp());
+  end if;
+  return new;
+end; $$;
+create trigger knocks_push after insert on public.knocks for each row execute function public.enqueue_knock_push();
+create trigger letters_push after insert on public.letters for each row execute function public.enqueue_letter_push();
+create trigger game_turn_push after insert or update of version,current_turn_user_id,status on public.game_sessions for each row execute function public.enqueue_game_turn_push();
+revoke all on function public.enqueue_private_push(uuid,uuid,text,uuid,integer,timestamptz),public.enqueue_knock_push(),public.enqueue_letter_push(),public.enqueue_game_turn_push() from public,anon,authenticated;
+
+create function public.push_source_ready(o public.push_outbox)
+returns boolean language sql volatile security definer set search_path='' as $$
+  select case o.kind
+    when 'knock' then exists(select 1 from public.knocks k where k.id=o.source_id and k.house_id=o.house_id and k.recipient_id=o.recipient_id)
+    when 'letter-delivered' then exists(select 1 from public.letters l where l.id=o.source_id and l.house_id=o.house_id and l.recipient_id=o.recipient_id and l.deliver_at<=statement_timestamp())
+    when 'game-turn' then exists(select 1 from public.game_sessions g where g.id=o.source_id and g.house_id=o.house_id and g.status='active' and g.version=o.source_version and g.current_turn_user_id=o.recipient_id)
+    else false end
+$$;
+create function public.push_delivery_ready(p_id uuid,p_lease_token uuid)
+returns boolean language sql volatile security definer set search_path='' as $$
+  select exists(select 1 from public.push_outbox o join public.push_subscriptions s on s.id=o.subscription_id
+    join public.houses h on h.id=o.house_id and h.state='active'
+    where o.id=p_id and o.lease_token=p_lease_token and o.status='sending' and o.lease_until>statement_timestamp()
+      and s.active and s.house_id=o.house_id and s.owner_id=o.recipient_id and o.created_at>=s.enabled_at
+      and (select count(*) from public.house_members m where m.house_id=o.house_id and m.status='active')=2
+      and exists(select 1 from public.house_members m where m.house_id=o.house_id and m.user_id=o.recipient_id and m.status='active')
+      and o.not_before<=statement_timestamp() and public.push_source_ready(o))
+$$;
+create function public.claim_push_deliveries(p_limit integer default 8)
+returns setof jsonb language plpgsql security definer set search_path='' as $$
+declare o public.push_outbox; s public.push_subscriptions; prefs jsonb;
+begin
+  if p_limit is null or p_limit<1 or p_limit>8 then raise exception 'Invalid dispatch limit'; end if;
+  update public.push_outbox set status='expired' where status='pending' and not_before<clock_timestamp()-interval '24 hours';
+  update public.push_outbox set status='failed' where status='sending' and lease_until<=clock_timestamp() and attempts>=4;
+  for o in select * from public.push_outbox where (status='pending' or (status='sending' and lease_until<=clock_timestamp()))
+    and attempts<4 and retry_at<=clock_timestamp() and not_before<=clock_timestamp()
+    order by not_before,id limit p_limit for update skip locked loop
+    update public.push_outbox set status='sending',attempts=attempts+1,lease_token=gen_random_uuid(),lease_until=clock_timestamp()+interval '2 minutes' where id=o.id returning * into o;
+    if not public.push_delivery_ready(o.id,o.lease_token) then
+      update public.push_outbox set status='cancelled' where id=o.id; continue;
+    end if;
+    select * into s from public.push_subscriptions where id=o.subscription_id;
+    select to_jsonb(p) into prefs from public.notification_preferences p where p.user_id=o.recipient_id;
+    return next jsonb_build_object('outbox_id',o.id,'lease_token',o.lease_token,'device_token',s.id,'event_id',o.id,'kind',o.kind,
+      'subscription',jsonb_build_object('endpoint',s.endpoint,'keys',jsonb_build_object('p256dh',s.p256dh,'auth',s.auth_key)),
+      'preferences',prefs,'db_now',clock_timestamp());
+  end loop;
+end;
+$$;
+create function public.finish_push_delivery(p_id uuid,p_lease_token uuid,p_result text)
+returns boolean language plpgsql security definer set search_path='' as $$
+declare o public.push_outbox;
+begin
+  if p_result is null or p_result not in ('sent','suppressed','retry','expired') then raise exception 'Invalid outcome'; end if;
+  select * into o from public.push_outbox where id=p_id and lease_token=p_lease_token and status='sending' for update;
+  if not found then return false; end if;
+  if p_result='expired' then update public.push_subscriptions set active=false where id=o.subscription_id; end if;
+  update public.push_outbox set status=case when p_result='retry' then case when attempts>=4 then 'failed' else 'pending' end else p_result end,
+    retry_at=clock_timestamp()+interval '15 seconds'*power(2,attempts),lease_until=null where id=o.id;
+  return true;
+end;
+$$;
+revoke all on function public.push_source_ready(public.push_outbox),public.push_delivery_ready(uuid,uuid),public.claim_push_deliveries(integer),public.finish_push_delivery(uuid,uuid,text) from public,anon,authenticated;
+grant execute on function public.push_delivery_ready(uuid,uuid),public.claim_push_deliveries(integer),public.finish_push_delivery(uuid,uuid,text) to service_role;
+
+
 notify pgrst, 'reload schema';
 commit;

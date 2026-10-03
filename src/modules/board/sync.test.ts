@@ -16,7 +16,7 @@ function setup() {
       if(!receipt) {
         const previous=items.get(op.id), conflict=op.mutation!=="append" && previous?.version!==op.expectedVersion;
         const item=conflict ? previous! : {id:op.id,houseId:context.houseId,createdBy:previous?.createdBy??context.accountId,type:previous?.type??op.data.type,
-          payload:op.data.payload??previous?.payload,mediaId:null,x:op.data.x??previous?.x??0,y:op.data.y??previous?.y??0,rotation:op.data.rotation??previous?.rotation??0,zIndex:op.data.zIndex??previous?.zIndex??0,
+          payload:op.data.payload??previous?.payload,mediaId:op.data.mediaId??previous?.mediaId??null,x:op.data.x??previous?.x??0,y:op.data.y??previous?.y??0,rotation:op.data.rotation??previous?.rotation??0,zIndex:op.data.zIndex??previous?.zIndex??0,
           version:(previous?.version??0)+1,createdAt:previous?.createdAt??"2026-10-02T00:00:00Z",updatedAt:"2026-10-02T00:00:00Z",deletedAt:null} as BoardItem;
         receipt={operationId:op.operationId,actorId:context.accountId,houseId:context.houseId,outcome:conflict?"conflict":"applied",item};
         receipts.set(op.operationId,receipt); if(!conflict) items.set(op.id,item);
@@ -29,6 +29,25 @@ function setup() {
   return {context,store,items,receipts,transport,enqueue,session,lose:()=>{lose=true;}};
 }
 describe("durable Board sync",()=> {
+  it.each(["link","photo","voice"] as const)("holds the exact %s operation after lost response and preserves media references",async type=>{
+    const s=setup(),mediaId=type==="link"?null:crypto.randomUUID();
+    const op=await s.store.enqueue({houseId:s.context.houseId,schemaVersion:2,entityId:crypto.randomUUID(),entity:"board",mutation:"append",payload:{type,mediaId,payload:type==="link"?{url:"https://example.com",title:"Link"}:{caption:"Riêng tư"}}});
+    s.lose();expect((await s.session().drain()).acknowledged).toEqual([]);
+    expect((await s.store.listOperations())[0]?.operationId).toBe(op.operationId);
+    expect((await s.session().drain()).acknowledged).toEqual([op.operationId]);expect(s.items.size).toBe(1);
+    expect([...s.items.values()][0]?.mediaId).toBe(mediaId);expect((await s.store.listRecent())[0]?.kind).toBe("board");
+  });
+  it("does not allow a generic board queue to impersonate a note/doodle entity",async()=>{
+    const s=setup();await s.store.enqueue({houseId:s.context.houseId,schemaVersion:2,entityId:crypto.randomUUID(),entity:"board",mutation:"append",payload:{type:"note",payload:{text:"Wrong queue"}}});
+    expect((await s.session().drain()).acknowledged).toEqual([]);expect(s.transport.apply).not.toHaveBeenCalled();
+  });
+  it("rejects an update receipt changing a media object's persisted type",async()=>{
+    const s=setup(),mediaId=crypto.randomUUID(),id=crypto.randomUUID();
+    await s.store.enqueue({houseId:s.context.houseId,schemaVersion:2,entityId:id,entity:"board",mutation:"append",payload:{type:"photo",mediaId,payload:{caption:"Photo"}}});await s.session().drain();
+    const op=await s.store.enqueue({houseId:s.context.houseId,schemaVersion:2,entityId:id,entity:"board",mutation:"update",baseVersion:1,payload:{boardType:"photo",mediaId,payload:{caption:"Updated"}}});
+    const real=s.transport.apply;s.transport.apply=async(...args)=>{const result=await real(...args);return {receipt:{...result.receipt!,item:{...result.receipt!.item,type:"voice"}}};};
+    expect((await s.session().drain()).acknowledged).toEqual([]);expect((await s.store.listOperations())[0]?.operationId).toBe(op.operationId);
+  });
   it("freezes its original account/House binding across external context mutations",async()=> {
     const s=setup(), operation=await s.enqueue();
     const session=s.session(), original={...s.context};

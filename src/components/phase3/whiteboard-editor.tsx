@@ -11,16 +11,19 @@ import { captureWhiteboardElements, restoreWhiteboardElements } from "@/modules/
 import { WhiteboardWorkspace } from "@/modules/whiteboard/workspace";
 import { whiteboardActionTransport } from "@/modules/whiteboard/transport";
 import type { WhiteboardProps } from "./whiteboard";
-export default function WhiteboardEditor({ accountId, houseId, onClose }: WhiteboardProps) {
+export default function WhiteboardEditor({ accountId, houseId, onClose, syncEnabled = true }: WhiteboardProps) {
   const [workspace,setWorkspace] = useState<WhiteboardWorkspace | null>(null);
+  const syncAllowed = useRef(syncEnabled);
+  useEffect(() => { syncAllowed.current = syncEnabled; }, [syncEnabled]);
   useEffect(() => {
-    const w = new WhiteboardWorkspace({ accountId,houseId },new AccountOfflineStore(accountId),whiteboardActionTransport,()=>navigator.onLine);
+    const w = new WhiteboardWorkspace({ accountId,houseId },new AccountOfflineStore(accountId),whiteboardActionTransport,()=>navigator.onLine && syncAllowed.current);
     let active=true;
     void w.open().then(() => { if (active) setWorkspace(w); });
     const reconnect=()=> { void w.refresh(); };
     addEventListener("online",reconnect);
     return () => { active=false; removeEventListener("online",reconnect); void w.close(); };
   }, [accountId,houseId]);
+  useEffect(() => { if (syncEnabled && workspace) void workspace.refresh(); }, [syncEnabled, workspace]);
   return workspace ? <WorkspaceEditor workspace={workspace} onClose={onClose} /> : <p role="status">Đang mở bản nháp…</p>;
 }
 function WorkspaceEditor({ workspace,onClose }: { workspace: WhiteboardWorkspace; onClose: () => void }) {

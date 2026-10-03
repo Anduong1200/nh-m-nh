@@ -1,0 +1,1751 @@
+-- GENERATED: node scripts/generate-v1-upgrade.mjs
+-- Existing Phase 2 project ONLY, without Board/Whiteboard/Games/Letters/Island.
+-- Preserves profiles, Houses, pairing, status, Knocks, preferences and mascots.
+-- Rejects a partial/new/already upgraded schema. Do NOT remove the guards.
+-- Any error rolls back this complete additive upgrade.
+begin;
+select pg_advisory_xact_lock(hashtextextended('nha-minh-v1-install',0));
+do $guard$
+declare t text;
+begin
+  foreach t in array array['profiles','houses','house_members','pairing_invites','presence_entries','knocks','notification_preferences','knock_dismissals'] loop
+    if not exists(select 1 from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname=t and c.relkind='r' and c.relrowsecurity) then
+      raise exception 'Phase 2 baseline with RLS required: %',t;
+    end if;
+  end loop;
+  if to_regprocedure('public.current_house_id()') is null or to_regprocedure('public.is_house_member(uuid)') is null then
+    raise exception 'Hardened House authorization baseline required';
+  end if;
+  foreach t in array array['board_objects','board_operations','media_objects','whiteboards','whiteboard_operations','game_sessions','letters','island_events','island_entries','push_subscriptions','push_outbox'] loop
+    if to_regclass('public.'||t) is not null then raise exception 'Partial/already installed V1: %. Use individual reviewed installers instead.',t; end if;
+  end loop;
+  if to_regtype('public.mascot_type') is null then
+    if exists(select 1 from information_schema.columns where table_schema='public' and table_name='house_members' and column_name='mascot') then raise exception 'Unexpected mascot schema'; end if;
+    -- Source: 20261001110000_add_mascot_to_house_members.sql
+    execute $identity_sql$
+-- Phase 3A: Mascot & Identity
+-- Add mascot column to house_members, ensure uniqueness per house,
+-- and provide RPC for assignment.
+
+create type public.mascot_type as enum ('rabbit', 'owl');
+
+alter table public.house_members
+add column mascot public.mascot_type;
+
+-- Ensure that within an active house, no two members have the same mascot.
+create unique index house_members_unique_mascot
+  on public.house_members(house_id, mascot)
+  where status = 'active' and mascot is not null;
+
+-- ============================================================
+-- RPC: assign_mascot
+-- Allows a user to choose their mascot. If the house has another member,
+-- they will automatically receive the opposite mascot if they don't have one.
+-- ============================================================
+create or replace function public.assign_mascot(
+  p_mascot public.mascot_type
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid;
+  v_house_id uuid;
+  v_current_mascot public.mascot_type;
+  v_partner_id uuid;
+  v_partner_mascot public.mascot_type;
+  v_opposite_mascot public.mascot_type;
+begin
+  v_user_id := auth.uid();
+  if v_user_id is null then
+    raise exception 'Authentication required' using errcode = '28000';
+  end if;
+
+  if p_mascot = 'rabbit' then
+    v_opposite_mascot := 'owl';
+  else
+    v_opposite_mascot := 'rabbit';
+  end if;
+
+  -- Lock the house members for this house to prevent race conditions
+  select house_id, mascot
+  into v_house_id, v_current_mascot
+  from public.house_members
+  where user_id = v_user_id and status = 'active'
+  for update;
+
+  if not found then
+    raise exception 'Not in an active house' using errcode = 'P0002';
+  end if;
+
+  if v_current_mascot is not null then
+    raise exception 'Mascot already assigned' using errcode = 'P0002';
+  end if;
+
+  -- Check if partner already has this mascot
+  select user_id, mascot
+  into v_partner_id, v_partner_mascot
+  from public.house_members
+  where house_id = v_house_id and user_id != v_user_id and status = 'active'
+  for update;
+
+  if found and v_partner_mascot = p_mascot then
+    raise exception 'Mascot already taken by partner' using errcode = 'P0002';
+  end if;
+
+  -- Assign mascot to current user
+  update public.house_members
+  set mascot = p_mascot
+  where house_id = v_house_id and user_id = v_user_id;
+
+  -- Auto-assign opposite mascot to partner if they don't have one
+  if found and v_partner_mascot is null then
+    update public.house_members
+    set mascot = v_opposite_mascot
+    where house_id = v_house_id and user_id = v_partner_id;
+  end if;
+end;
+$$;
+
+    $identity_sql$;
+  elsif not exists(select 1 from information_schema.columns where table_schema='public' and table_name='house_members' and column_name='mascot' and udt_name='mascot_type') then
+    raise exception 'Incomplete mascot schema';
+  end if;
+end;
+$guard$;
+
+-- Source: 20261001111500_harden_mascot_assignment.sql
+-- Additive identity repair. Existing assignments and member permissions remain.
+-- Serialize on the House before locking members, matching pairing's lock order.
+create or replace function public.assign_mascot(p_mascot public.mascot_type)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_house_id uuid;
+  v_current_mascot public.mascot_type;
+  v_partner_id uuid;
+  v_partner_mascot public.mascot_type;
+  v_opposite_mascot public.mascot_type;
+begin
+  if v_user_id is null then
+    raise exception 'Authentication required' using errcode = '28000';
+  end if;
+  if p_mascot is null then
+    raise exception 'Invalid mascot' using errcode = '22023';
+  end if;
+
+  v_house_id := public.current_house_id();
+  if v_house_id is null then
+    raise exception 'House membership required' using errcode = '42501';
+  end if;
+  perform 1 from public.houses where id = v_house_id and state = 'active' for update;
+  if not found then
+    raise exception 'Active House required' using errcode = '42501';
+  end if;
+
+  -- Recheck after the House lock: membership can change while waiting for it.
+  select mascot into v_current_mascot from public.house_members
+  where house_id = v_house_id and user_id = v_user_id and status = 'active'
+  for update;
+  if not found then
+    raise exception 'House membership required' using errcode = '42501';
+  end if;
+  if v_current_mascot = p_mascot then return; end if; -- Safe response-loss retry.
+  if v_current_mascot is not null then
+    raise exception 'Mascot already assigned' using errcode = 'P0002';
+  end if;
+
+  select user_id, mascot into v_partner_id, v_partner_mascot
+  from public.house_members
+  where house_id = v_house_id and user_id <> v_user_id and status = 'active'
+  for update;
+  if v_partner_mascot = p_mascot then
+    raise exception 'Mascot already taken by partner' using errcode = 'P0002';
+  end if;
+
+  v_opposite_mascot := case when p_mascot = 'rabbit' then 'owl' else 'rabbit' end;
+  update public.house_members set mascot = p_mascot
+  where house_id = v_house_id and user_id = v_user_id and status = 'active';
+  if v_partner_id is not null and v_partner_mascot is null then
+    update public.house_members set mascot = v_opposite_mascot
+    where house_id = v_house_id and user_id = v_partner_id and status = 'active';
+  end if;
+end;
+$$;
+
+revoke all on function public.assign_mascot(public.mascot_type) from public, anon;
+grant execute on function public.assign_mascot(public.mascot_type) to authenticated;
+
+
+-- Source: 20261001120000_create_board_objects.sql
+-- Phase 3B: Board objects (notes and links) with version check and soft deletion.
+
+create table public.board_objects (
+  id uuid primary key,
+  house_id uuid not null references public.houses(id) on delete cascade,
+  created_by uuid not null references auth.users(id),
+  type text not null check (type in ('note', 'link')),
+  payload jsonb not null default '{}'::jsonb,
+  x numeric not null default 0,
+  y numeric not null default 0,
+  rotation numeric not null default 0,
+  z_index integer not null default 0,
+  version integer not null default 1 check (version > 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
+  foreign key (house_id, created_by) references public.house_members(house_id, user_id)
+);
+
+create index board_objects_house_id_idx on public.board_objects(house_id, deleted_at);
+
+alter table public.board_objects enable row level security;
+
+-- Read policy: Both members can view any non-hard-deleted object in their house.
+create policy board_objects_select on public.board_objects for select to authenticated
+  using (public.is_house_member(house_id));
+
+-- We revoke direct mutation from anon/authenticated so that modifications must go through a secure RPC.
+revoke insert, update, delete on public.board_objects from public, anon, authenticated;
+grant select on public.board_objects to authenticated;
+
+-- RPC for appending board objects
+create or replace function public.append_board_object(
+  p_id uuid,
+  p_type text,
+  p_payload jsonb,
+  p_x numeric,
+  p_y numeric,
+  p_rotation numeric,
+  p_z_index integer
+)
+returns public.board_objects language plpgsql security definer set search_path = ''
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_house_id uuid;
+  v_row public.board_objects;
+begin
+  if v_user_id is null then raise exception 'Authentication required' using errcode = '28000'; end if;
+  v_house_id := public.current_house_id();
+  if v_house_id is null then raise exception 'House membership required' using errcode = '42501'; end if;
+  if p_id is null or p_type not in ('note', 'link') or p_payload is null then
+    raise exception 'Invalid board object data' using errcode = '22023';
+  end if;
+
+  insert into public.board_objects (
+    id, house_id, created_by, type, payload, x, y, rotation, z_index
+  ) values (
+    p_id, v_house_id, v_user_id, p_type, p_payload, coalesce(p_x, 0), coalesce(p_y, 0), coalesce(p_rotation, 0), coalesce(p_z_index, 0)
+  ) returning * into v_row;
+
+  return v_row;
+end;
+$$;
+
+-- RPC for updating or soft-deleting board objects
+create or replace function public.update_board_object(
+  p_id uuid,
+  p_expected_version integer,
+  p_payload jsonb,
+  p_x numeric,
+  p_y numeric,
+  p_rotation numeric,
+  p_z_index integer,
+  p_deleted boolean
+)
+returns public.board_objects language plpgsql security definer set search_path = ''
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_house_id uuid;
+  v_row public.board_objects;
+begin
+  if v_user_id is null then raise exception 'Authentication required' using errcode = '28000'; end if;
+  v_house_id := public.current_house_id();
+  if v_house_id is null then raise exception 'House membership required' using errcode = '42501'; end if;
+  if p_id is null or p_expected_version is null or p_expected_version < 1 then
+    raise exception 'Invalid update parameters' using errcode = '22023';
+  end if;
+
+  -- Lock the row for update
+  perform pg_advisory_xact_lock(hashtextextended('board_object:' || p_id::text, 0));
+  select * into v_row from public.board_objects where house_id = v_house_id and id = p_id for update;
+
+  if v_row.id is null then
+    raise exception 'Board object not found or not in this house' using errcode = 'P0002';
+  end if;
+
+  if coalesce(v_row.version, 1) <> p_expected_version then
+    raise exception 'Board object version conflict' using errcode = '40001';
+  end if;
+
+  -- "Trust model": either member can update/delete any object on the board.
+  update public.board_objects set
+    payload = coalesce(p_payload, v_row.payload),
+    x = coalesce(p_x, v_row.x),
+    y = coalesce(p_y, v_row.y),
+    rotation = coalesce(p_rotation, v_row.rotation),
+    z_index = coalesce(p_z_index, v_row.z_index),
+    version = v_row.version + 1,
+    updated_at = now(),
+    deleted_at = case when coalesce(p_deleted, false) = true then now() else null end
+  where id = p_id returning * into v_row;
+
+  return v_row;
+end;
+$$;
+
+
+-- Source: 20261002010000_board_domain.sql
+-- Additive repair: preserve existing Board rows and all applied migrations.
+-- Both members edit; only the creator may trash/restore. No purge API.
+create table public.media_objects (
+  id uuid primary key,
+  house_id uuid not null references public.houses(id),
+  owner_id uuid not null references auth.users(id),
+  media_type text not null check (media_type in ('photo', 'audio')),
+  bucket_id text not null default 'nha-minh-private' check (bucket_id = 'nha-minh-private'),
+  storage_path text not null unique,
+  state text not null default 'pending' check (state in ('pending', 'ready', 'error')),
+  mime_type text,
+  size_bytes bigint,
+  duration_seconds numeric,
+  created_at timestamptz not null default now(),
+  unique (house_id, id),
+  foreign key (house_id, owner_id) references public.house_members(house_id, user_id),
+  check (storage_path = house_id::text || '/' || id::text),
+  check (state <> 'ready' or (
+    size_bytes is not null and size_bytes > 0 and size_bytes <= 20971520 and mime_type is not null and
+    ((media_type = 'photo' and mime_type in ('image/jpeg','image/png','image/webp') and duration_seconds is null) or
+     (media_type = 'audio' and mime_type in ('audio/mpeg','audio/mp4','audio/ogg','audio/webm','audio/wav') and duration_seconds is not null and duration_seconds > 0 and duration_seconds <= 60))
+  ))
+);
+alter table public.media_objects enable row level security;
+revoke all on public.media_objects from public, anon, authenticated;
+grant select on public.media_objects to authenticated;
+create policy media_objects_select on public.media_objects for select to authenticated
+  using (public.is_house_member(house_id) and (state = 'ready' or owner_id = auth.uid()));
+-- Only a trusted, byte-validating media pipeline may create/update metadata.
+-- No client ready-state write or public URL registration is exposed here.
+
+alter table public.board_objects add column media_id uuid;
+alter table public.board_objects add constraint board_house_item_unique unique(house_id,id);
+alter table public.board_objects add constraint board_media_house_fk
+  foreign key (house_id, media_id) references public.media_objects(house_id, id);
+alter table public.board_objects drop constraint board_objects_type_check;
+alter table public.board_objects add constraint board_objects_type_check
+  check (type in ('note','link','doodle','photo','voice'));
+
+create function public.board_payload_valid(p_type text, p_payload jsonb, p_media_id uuid)
+returns boolean language plpgsql immutable set search_path = '' as $$
+declare v_stroke jsonb; v_point jsonb; v_points integer := 0;
+begin
+  if p_payload is null or jsonb_typeof(p_payload) <> 'object' or octet_length(p_payload::text) > 262144 then return false; end if;
+  if p_type = 'note' then
+    return p_media_id is null and jsonb_typeof(p_payload->'text') = 'string'
+      and char_length(p_payload->>'text') <= 10000
+      and regexp_replace(p_payload->>'text', E'[\n\r\t]', '', 'g') !~ '[[:cntrl:]]'
+      and not exists (select 1 from jsonb_object_keys(p_payload) k where k <> 'text');
+  elsif p_type = 'link' then
+    return p_media_id is null and jsonb_typeof(p_payload->'url') = 'string'
+      and char_length(p_payload->>'url') between 1 and 2048
+      and (p_payload->>'url') ~ '^https?://[^/?#[:space:]@]+([/?#][^[:space:]]*)?$'
+      and (not p_payload ? 'title' or (jsonb_typeof(p_payload->'title') = 'string' and char_length(p_payload->>'title') <= 200 and (p_payload->>'title') !~ '[[:cntrl:]]'))
+      and not exists (select 1 from jsonb_object_keys(p_payload) k where k not in ('url','title'));
+  elsif p_type in ('photo','voice') then
+    return p_media_id is not null
+      and (not p_payload ? 'caption' or (jsonb_typeof(p_payload->'caption') = 'string' and char_length(p_payload->>'caption') <= 1000 and regexp_replace(p_payload->>'caption', E'[\n\r\t]', '', 'g') !~ '[[:cntrl:]]'))
+      and not exists (select 1 from jsonb_object_keys(p_payload) k where k <> 'caption');
+  elsif p_type = 'doodle' then
+    if p_media_id is not null or p_payload->'schemaVersion' is distinct from '1'::jsonb
+      or jsonb_typeof(p_payload->'strokes') is distinct from 'array'
+      or exists (select 1 from jsonb_object_keys(p_payload) k where k not in ('schemaVersion','strokes')) then return false; end if;
+    if jsonb_array_length(p_payload->'strokes') > 256 then return false; end if;
+    for v_stroke in select value from jsonb_array_elements(p_payload->'strokes') loop
+      if jsonb_typeof(v_stroke) is distinct from 'object' or jsonb_typeof(v_stroke->'color') is distinct from 'string'
+        or (v_stroke->>'color') !~ '^#[a-fA-F0-9]{6}$' or jsonb_typeof(v_stroke->'width') is distinct from 'number'
+        or jsonb_typeof(v_stroke->'points') is distinct from 'array'
+        or exists (select 1 from jsonb_object_keys(v_stroke) k where k not in ('color','width','points')) then return false; end if;
+      if (v_stroke->>'width')::numeric not between 0.5 and 32 then return false; end if;
+      v_points := v_points + jsonb_array_length(v_stroke->'points');
+      if v_points > 10000 then return false; end if;
+      for v_point in select value from jsonb_array_elements(v_stroke->'points') loop
+        if jsonb_typeof(v_point) <> 'array' then return false; end if;
+        if jsonb_array_length(v_point) <> 2 or jsonb_typeof(v_point->0) <> 'number' or jsonb_typeof(v_point->1) <> 'number' then return false; end if;
+        if (v_point->>0)::numeric not between -10000 and 10000 or (v_point->>1)::numeric not between -10000 and 10000 then return false; end if;
+      end loop;
+    end loop;
+    return true;
+  end if;
+  return false;
+exception when others then return false;
+end;
+$$;
+revoke all on function public.board_payload_valid(text,jsonb,uuid) from public, anon;
+grant execute on function public.board_payload_valid(text,jsonb,uuid) to authenticated;
+-- NOT VALID preserves old invalid rows; all new/modified rows are checked.
+alter table public.board_objects add constraint board_payload_bounds
+  check (public.board_payload_valid(type,payload,media_id) is true) not valid;
+alter table public.board_objects add constraint board_layout_bounds
+  check (x between -10000 and 10000 and y between -10000 and 10000
+    and rotation between -180 and 180 and z_index between 0 and 1000000) not valid;
+
+create table public.board_operations (
+  operation_id uuid primary key,
+  house_id uuid not null references public.houses(id),
+  actor_id uuid not null references auth.users(id),
+  item_id uuid not null,
+  request jsonb not null,
+  outcome text not null check (outcome in ('applied','conflict')),
+  snapshot jsonb not null,
+  created_at timestamptz not null default now(),
+  foreign key (house_id,actor_id) references public.house_members(house_id,user_id),
+  foreign key (house_id,item_id) references public.board_objects(house_id,id)
+);
+alter table public.board_operations enable row level security;
+revoke all on public.board_objects, public.board_operations from public, anon, authenticated;
+grant select on public.board_objects, public.board_operations to authenticated;
+create policy board_operations_select on public.board_operations for select to authenticated
+  using (actor_id = auth.uid() and public.is_house_member(house_id));
+
+-- Retire insecure legacy write entry points without deleting their definitions.
+revoke all on function public.append_board_object(uuid,text,jsonb,numeric,numeric,numeric,integer),
+  public.update_board_object(uuid,integer,jsonb,numeric,numeric,numeric,integer,boolean)
+  from public, anon, authenticated;
+
+create function public.apply_board_operation(
+  p_operation_id uuid, p_house_id uuid, p_mutation text,
+  p_item_id uuid, p_expected_version integer, p_data jsonb
+) returns jsonb language plpgsql security definer set search_path = '' as $$
+declare
+  v_actor uuid := auth.uid(); v_request jsonb; v_previous public.board_operations;
+  v_item public.board_objects; v_outcome text := 'applied'; v_media public.media_objects; v_key text;
+begin
+  if v_actor is null then raise exception 'Authentication required' using errcode = '28000'; end if;
+  if p_operation_id is null or p_item_id is null or p_house_id is null
+    or p_mutation is null or p_mutation not in ('append','update','trash','restore')
+    or p_data is null or jsonb_typeof(p_data) <> 'object' or octet_length(p_data::text) > 300000
+    or p_expected_version is null then raise exception 'Invalid operation' using errcode = '22023'; end if;
+  if public.current_house_id() is distinct from p_house_id then raise exception 'House membership required' using errcode = '42501'; end if;
+  perform pg_advisory_xact_lock(hashtextextended('board_operation:' || p_operation_id::text,0));
+  perform 1 from public.houses where id = p_house_id and state = 'active' for update;
+  if not found then raise exception 'Active House required' using errcode = '42501'; end if;
+  perform 1 from public.house_members where house_id = p_house_id and user_id = v_actor and status = 'active' for share;
+  if not found then raise exception 'House membership required' using errcode = '42501'; end if;
+  v_request := jsonb_build_object('mutation',p_mutation,'itemId',p_item_id,'expectedVersion',p_expected_version,'data',p_data);
+  select * into v_previous from public.board_operations where operation_id = p_operation_id;
+  if found then
+    if v_previous.house_id <> p_house_id or v_previous.actor_id <> v_actor or v_previous.request <> v_request then
+      raise exception 'Operation identity mismatch' using errcode = '23505';
+    end if;
+    return jsonb_build_object('operation_id',p_operation_id,'house_id',p_house_id,'actor_id',v_actor,'outcome',v_previous.outcome,'item',v_previous.snapshot);
+  end if;
+
+  if p_mutation = 'append' then
+    if p_expected_version <> 0 or exists (select 1 from jsonb_object_keys(p_data) k where k not in ('type','payload','mediaId','x','y','rotation','zIndex'))
+      or jsonb_typeof(p_data->'type') <> 'string' or not p_data ? 'payload' then raise exception 'Invalid append' using errcode = '22023'; end if;
+    v_item.id := p_item_id; v_item.house_id := p_house_id; v_item.created_by := v_actor;
+    v_item.type := p_data->>'type'; v_item.payload := p_data->'payload';
+    v_item.media_id := (p_data->>'mediaId')::uuid;
+    v_item.x := coalesce((p_data->>'x')::numeric,0); v_item.y := coalesce((p_data->>'y')::numeric,0);
+    v_item.rotation := coalesce((p_data->>'rotation')::numeric,0); v_item.z_index := coalesce((p_data->>'zIndex')::integer,0);
+  else
+    if p_expected_version < 1 then raise exception 'Invalid version' using errcode = '22023'; end if;
+    select * into v_item from public.board_objects where id = p_item_id and house_id = p_house_id for update;
+    if not found then raise exception 'Board object unavailable' using errcode = 'P0002'; end if;
+    if p_mutation in ('trash','restore') and v_item.created_by <> v_actor then raise exception 'Creator required' using errcode = '42501'; end if;
+    if v_item.version <> p_expected_version then v_outcome := 'conflict';
+    elsif p_mutation = 'update' then
+      if v_item.deleted_at is not null then raise exception 'Object is in trash' using errcode = 'P0002'; end if;
+      if p_data = '{}'::jsonb or exists (select 1 from jsonb_object_keys(p_data) k where k not in ('payload','mediaId','x','y','rotation','zIndex')) then raise exception 'Invalid update' using errcode = '22023'; end if;
+      if p_data ? 'payload' then v_item.payload := p_data->'payload'; end if;
+      if p_data ? 'mediaId' then v_item.media_id := (p_data->>'mediaId')::uuid; end if;
+      if p_data ? 'x' then v_item.x := (p_data->>'x')::numeric; end if;
+      if p_data ? 'y' then v_item.y := (p_data->>'y')::numeric; end if;
+      if p_data ? 'rotation' then v_item.rotation := (p_data->>'rotation')::numeric; end if;
+      if p_data ? 'zIndex' then v_item.z_index := (p_data->>'zIndex')::integer; end if;
+    elsif p_data <> '{}'::jsonb or (p_mutation = 'trash' and v_item.deleted_at is not null) or (p_mutation = 'restore' and v_item.deleted_at is null) then
+      raise exception 'Invalid trash transition' using errcode = '22023';
+    end if;
+  end if;
+
+  for v_key in select unnest(array['x','y','rotation','zIndex']) loop
+    if p_data ? v_key and jsonb_typeof(p_data->v_key) is distinct from 'number' then raise exception 'Invalid layout type' using errcode = '22023'; end if;
+  end loop;
+
+  if v_outcome = 'applied' then
+    if public.board_payload_valid(v_item.type,v_item.payload,v_item.media_id) is not true
+      or v_item.x is null or v_item.y is null or v_item.rotation is null or v_item.z_index is null
+      or v_item.x not between -10000 and 10000 or v_item.y not between -10000 and 10000
+      or v_item.rotation not between -180 and 180 or v_item.z_index not between 0 and 1000000 then
+      raise exception 'Invalid Board content' using errcode = '22023';
+    end if;
+    if v_item.media_id is not null then
+      select * into v_media from public.media_objects where id = v_item.media_id and house_id = p_house_id and state = 'ready' for share;
+      if not found or (v_item.type = 'photo' and v_media.media_type <> 'photo') or (v_item.type = 'voice' and v_media.media_type <> 'audio') then
+        raise exception 'Media unavailable' using errcode = '42501';
+      end if;
+    end if;
+    if p_mutation = 'append' then
+      insert into public.board_objects(id,house_id,created_by,type,payload,media_id,x,y,rotation,z_index)
+        values(v_item.id,p_house_id,v_actor,v_item.type,v_item.payload,v_item.media_id,v_item.x,v_item.y,v_item.rotation,v_item.z_index) returning * into v_item;
+    else
+      update public.board_objects set payload=v_item.payload, media_id=v_item.media_id,
+        x=v_item.x, y=v_item.y, rotation=v_item.rotation, z_index=v_item.z_index,
+        version=version+1, updated_at=now(),
+        deleted_at=case when p_mutation='trash' then now() when p_mutation='restore' then null else deleted_at end
+      where id=p_item_id and house_id=p_house_id returning * into v_item;
+    end if;
+  end if;
+  insert into public.board_operations(operation_id,house_id,actor_id,item_id,request,outcome,snapshot)
+    values(p_operation_id,p_house_id,v_actor,p_item_id,v_request,v_outcome,to_jsonb(v_item));
+  return jsonb_build_object('operation_id',p_operation_id,'house_id',p_house_id,'actor_id',v_actor,'outcome',v_outcome,'item',to_jsonb(v_item));
+end;
+$$;
+revoke all on function public.apply_board_operation(uuid,uuid,text,uuid,integer,jsonb) from public, anon;
+grant execute on function public.apply_board_operation(uuid,uuid,text,uuid,integer,jsonb) to authenticated;
+
+
+-- Source: 20261002020000_whiteboard_snapshots.sql
+-- Additive Whiteboard snapshots; no media, public rooms, deletion or realtime.
+create function public.whiteboard_number(v jsonb, lo numeric, hi numeric, whole boolean default false)
+returns boolean language sql immutable set search_path = '' as $$
+  select case when jsonb_typeof(v) = 'number' then (v::text)::numeric between lo and hi
+    and (not whole or trunc((v::text)::numeric) = (v::text)::numeric) else false end
+$$;
+create function public.whiteboard_id(v jsonb) returns boolean language sql immutable set search_path = '' as $$
+  select coalesce(jsonb_typeof(v) = 'string' and (v #>> '{}') ~ '^[A-Za-z0-9_-]{1,128}$',false)
+$$;
+create function public.whiteboard_point(v jsonb) returns boolean language plpgsql immutable set search_path = '' as $$
+begin
+  if jsonb_typeof(v) is distinct from 'array' then return false; end if;
+  if jsonb_array_length(v) <> 2 then return false; end if;
+  return public.whiteboard_number(v->0,-100000,100000) and public.whiteboard_number(v->1,-100000,100000);
+end;
+$$;
+create function public.whiteboard_binding(v jsonb) returns boolean language plpgsql immutable set search_path = '' as $$
+begin
+  if v = 'null'::jsonb then return true; end if;
+  if jsonb_typeof(v) is distinct from 'object' then return false; end if;
+  return not exists(select 1 from jsonb_object_keys(v) as f(key_name) where f.key_name not in ('elementId','focus','gap'))
+    and public.whiteboard_id(v->'elementId') and public.whiteboard_number(v->'focus',-1,1) and public.whiteboard_number(v->'gap',0,100000);
+end;
+$$;
+create function public.whiteboard_scene_valid(s jsonb) returns boolean language plpgsql immutable set search_path = '' as $$
+declare
+  e jsonb; v jsonb; p jsonb; k text; ids text[] := '{}'; references_to text[] := '{}'; n integer := 0;
+  common text[] := array['id','type','x','y','width','height','angle','strokeColor','backgroundColor','fillStyle','strokeWidth','strokeStyle','roughness','opacity','seed','version','versionNonce','isDeleted','groupIds','frameId','boundElements','updated','link','locked','roundness','index'];
+  extra text[];
+begin
+  if jsonb_typeof(s) is distinct from 'object' or octet_length(s::text) > 1048576 then return false; end if;
+  if exists(select 1 from jsonb_object_keys(s) as f(key_name) where f.key_name not in ('schemaVersion','library','libraryVersion','elements'))
+    or s->'schemaVersion' is distinct from '1'::jsonb or s->>'library' is distinct from 'excalidraw'
+    or s->>'libraryVersion' is distinct from '0.18.1' or jsonb_typeof(s->'elements') is distinct from 'array' then return false; end if;
+  if jsonb_array_length(s->'elements') > 1000 then return false; end if;
+  for e in select value from jsonb_array_elements(s->'elements') loop
+    if jsonb_typeof(e) is distinct from 'object' then return false; end if;
+    if e->>'type' is null or e->>'type' not in ('rectangle','ellipse','diamond','text','freedraw','line','arrow')
+      or public.whiteboard_id(e->'id') is not true or (e->>'id') = any(ids) or not e ?& common then return false; end if;
+    ids := array_append(ids,e->>'id');
+    extra := case e->>'type'
+      when 'text' then array['fontSize','fontFamily','text','originalText','textAlign','verticalAlign','containerId','autoResize','lineHeight']
+      when 'freedraw' then array['points','pressures','simulatePressure','lastCommittedPoint']
+      when 'line' then array['points','lastCommittedPoint','startBinding','endBinding','startArrowhead','endArrowhead','elbowed']
+      when 'arrow' then array['points','lastCommittedPoint','startBinding','endBinding','startArrowhead','endArrowhead','elbowed'] else '{}'::text[] end;
+    if exists(select 1 from jsonb_object_keys(e) as f(key_name) where not f.key_name = any(common || extra)) then return false; end if;
+    for k,v in select key,value from jsonb_each(e) loop
+      if (case
+        when k in ('id') then public.whiteboard_id(v)
+        when k in ('x','y') then public.whiteboard_number(v,-100000,100000)
+        when k in ('width','height') then public.whiteboard_number(v,0,100000)
+        when k = 'angle' then public.whiteboard_number(v,-100,100)
+        when k in ('strokeColor','backgroundColor') then jsonb_typeof(v) = 'string' and (v #>> '{}') ~ '^(transparent|#[0-9a-fA-F]{3,8})$'
+        when k = 'fillStyle' then v #>> '{}' in ('hachure','cross-hatch','solid','zigzag')
+        when k = 'strokeStyle' then v #>> '{}' in ('solid','dashed','dotted')
+        when k = 'strokeWidth' then public.whiteboard_number(v,0,32)
+        when k = 'roughness' then public.whiteboard_number(v,0,5)
+        when k = 'opacity' then public.whiteboard_number(v,0,100)
+        when k in ('seed','versionNonce') then public.whiteboard_number(v,0,2147483647,true)
+        when k = 'version' then public.whiteboard_number(v,1,2147483647,true)
+        when k = 'updated' then public.whiteboard_number(v,0,9007199254740991,true)
+        when k in ('isDeleted','locked','simulatePressure','autoResize') then jsonb_typeof(v) = 'boolean'
+        when k in ('link','frameId') then v = 'null'::jsonb
+        when k = 'index' then v = 'null'::jsonb or jsonb_typeof(v) = 'string' and (v #>> '{}') ~ '^[A-Za-z0-9]{1,128}$'
+        when k in ('lastCommittedPoint') then v = 'null'::jsonb or public.whiteboard_point(v)
+        when k in ('startBinding','endBinding') then public.whiteboard_binding(v)
+        when k in ('startArrowhead','endArrowhead') then v = 'null'::jsonb or v #>> '{}' in ('arrow','bar','dot','circle','circle_outline','triangle','triangle_outline','diamond','diamond_outline','crowfoot_one','crowfoot_many','crowfoot_one_or_many')
+        when k = 'elbowed' then v = 'false'::jsonb
+        when k = 'fontSize' then public.whiteboard_number(v,4,512)
+        when k = 'fontFamily' then public.whiteboard_number(v,1,10,true) and v #>> '{}' in ('2','5')
+        when k = 'lineHeight' then public.whiteboard_number(v,.5,5)
+        when k in ('text','originalText') then jsonb_typeof(v) = 'string' and length(v #>> '{}') <= 10000 and (v #>> '{}') !~ '[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]'
+        when k = 'textAlign' then v #>> '{}' in ('left','center','right')
+        when k = 'verticalAlign' then v #>> '{}' in ('top','middle','bottom')
+        when k = 'containerId' then v = 'null'::jsonb or public.whiteboard_id(v)
+        else true end) is not true then return false; end if;
+    end loop;
+    v := e->'groupIds';
+    if jsonb_typeof(v) is distinct from 'array' then return false; end if;
+    if jsonb_array_length(v) > 32 or exists(select 1 from jsonb_array_elements(v) x where public.whiteboard_id(x) is not true) then return false; end if;
+    v := e->'roundness';
+    if v <> 'null'::jsonb then
+      if jsonb_typeof(v) is distinct from 'object' then return false; end if;
+      if exists(select 1 from jsonb_object_keys(v) as f(key_name) where f.key_name not in ('type','value')) or public.whiteboard_number(v->'type',1,3,true) is not true
+        or (v ? 'value' and public.whiteboard_number(v->'value',0,100000) is not true) then return false; end if;
+    end if;
+    v := e->'boundElements';
+    if v <> 'null'::jsonb then
+      if jsonb_typeof(v) is distinct from 'array' then return false; end if;
+      if jsonb_array_length(v) > 1000 then return false; end if;
+      for p in select value from jsonb_array_elements(v) loop
+        if jsonb_typeof(p) is distinct from 'object' then return false; end if;
+        if exists(select 1 from jsonb_object_keys(p) as f(key_name) where f.key_name not in ('id','type')) or public.whiteboard_id(p->'id') is not true or p->>'type' is null or p->>'type' not in ('text','arrow') then return false; end if;
+        references_to := array_append(references_to,p->>'id');
+      end loop;
+    end if;
+    if e->>'type' = 'text' then
+      if not e ?& extra then return false; end if;
+      if e->'containerId' <> 'null'::jsonb then references_to := array_append(references_to,e->>'containerId'); end if;
+    end if;
+    if e->>'type' in ('freedraw','line','arrow') then
+      if jsonb_typeof(e->'points') is distinct from 'array' or not e ? 'lastCommittedPoint' then return false; end if;
+      n := n + jsonb_array_length(e->'points');
+      if n > 20000 or exists(select 1 from jsonb_array_elements(e->'points') x where public.whiteboard_point(x) is not true) then return false; end if;
+      if e->>'type' = 'freedraw' then
+        if jsonb_typeof(e->'pressures') is distinct from 'array' or jsonb_typeof(e->'simulatePressure') is distinct from 'boolean' then return false; end if;
+        if jsonb_array_length(e->'pressures') > jsonb_array_length(e->'points') or exists(select 1 from jsonb_array_elements(e->'pressures') x where public.whiteboard_number(x,0,1) is not true) then return false; end if;
+      else
+        if not e ?& array['startBinding','endBinding','startArrowhead','endArrowhead'] or (e->>'type' = 'arrow' and e->'elbowed' is distinct from 'false'::jsonb) then return false; end if;
+        foreach k in array array['startBinding','endBinding'] loop
+          if e->k <> 'null'::jsonb then references_to := array_append(references_to,e->k->>'elementId'); end if;
+        end loop;
+      end if;
+    end if;
+  end loop;
+  return references_to <@ ids;
+end;
+$$;
+
+create table public.whiteboards (
+  id uuid primary key default gen_random_uuid(),
+  house_id uuid not null unique references public.houses(id),
+  version integer not null check(version >= 1),
+  scene jsonb not null check(public.whiteboard_scene_valid(scene)),
+  updated_by uuid not null references auth.users(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  foreign key(house_id,updated_by) references public.house_members(house_id,user_id)
+);
+create table public.whiteboard_operations (
+  operation_id uuid primary key,
+  house_id uuid not null references public.whiteboards(house_id),
+  actor_id uuid not null references auth.users(id),
+  request jsonb not null,
+  outcome text not null check(outcome in ('applied','conflict')),
+  snapshot jsonb not null,
+  created_at timestamptz not null default now(),
+  foreign key(house_id,actor_id) references public.house_members(house_id,user_id)
+);
+alter table public.whiteboards enable row level security;
+alter table public.whiteboard_operations enable row level security;
+revoke all on public.whiteboards,public.whiteboard_operations from public,anon,authenticated;
+grant select on public.whiteboards,public.whiteboard_operations to authenticated;
+create policy whiteboards_select on public.whiteboards for select to authenticated using (
+  public.is_house_member(house_id) and exists(select 1 from public.houses h where h.id = house_id and h.state = 'active')
+);
+create policy whiteboard_operations_select on public.whiteboard_operations for select to authenticated using (
+  actor_id = auth.uid() and public.is_house_member(house_id) and exists(select 1 from public.houses h where h.id = house_id and h.state = 'active')
+);
+create function public.save_whiteboard_snapshot(p_operation_id uuid,p_house_id uuid,p_expected_version integer,p_scene jsonb)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare
+  actor uuid := auth.uid(); previous public.whiteboard_operations; current_board public.whiteboards;
+  request jsonb; result jsonb; outcome text := 'applied';
+begin
+  if actor is null then raise exception 'Authentication required' using errcode = '28000'; end if;
+  if p_operation_id is null or p_house_id is null or p_expected_version is null or p_expected_version not between 0 and 2147483646
+    or public.whiteboard_scene_valid(p_scene) is not true then raise exception 'Invalid Whiteboard operation' using errcode = '22023'; end if;
+  if public.current_house_id() is distinct from p_house_id then raise exception 'House required' using errcode = '42501'; end if;
+  perform pg_advisory_xact_lock(hashtextextended('whiteboard_operation:' || p_operation_id::text,0));
+  perform 1 from public.houses where id = p_house_id and state = 'active' for update;
+  if not found then raise exception 'Active House required' using errcode = '42501'; end if;
+  perform 1 from public.house_members where house_id = p_house_id and user_id = actor and status = 'active' for share;
+  if not found then raise exception 'Active member required' using errcode = '42501'; end if;
+  request := jsonb_build_object('expectedVersion',p_expected_version,'scene',p_scene);
+  select * into previous from public.whiteboard_operations where operation_id = p_operation_id;
+  if found then
+    if previous.house_id <> p_house_id or previous.actor_id <> actor or previous.request <> request then raise exception 'Operation identity mismatch' using errcode = '23505'; end if;
+    return jsonb_build_object('operationId',p_operation_id,'actorId',actor,'houseId',p_house_id,'outcome',previous.outcome,'snapshot',previous.snapshot);
+  end if;
+  select * into current_board from public.whiteboards where house_id = p_house_id for update;
+  if coalesce(current_board.version,0) <> p_expected_version then
+    if current_board.version is null then raise exception 'Whiteboard unavailable' using errcode = 'P0002'; end if;
+    outcome := 'conflict';
+  else
+    insert into public.whiteboards(house_id,version,scene,updated_by) values(p_house_id,1,p_scene,actor)
+      on conflict(house_id) do update set version = public.whiteboards.version + 1, scene = p_scene, updated_by = actor, updated_at = now()
+      returning * into current_board;
+  end if;
+  result := jsonb_build_object('houseId',p_house_id,'version',current_board.version,'scene',current_board.scene,'updatedBy',current_board.updated_by,'updatedAt',current_board.updated_at);
+  insert into public.whiteboard_operations(operation_id,house_id,actor_id,request,outcome,snapshot) values(p_operation_id,p_house_id,actor,request,outcome,result);
+  return jsonb_build_object('operationId',p_operation_id,'actorId',actor,'houseId',p_house_id,'outcome',outcome,'snapshot',result);
+end;
+$$;
+revoke all on function public.save_whiteboard_snapshot(uuid,uuid,integer,jsonb) from public,anon;
+grant execute on function public.save_whiteboard_snapshot(uuid,uuid,integer,jsonb) to authenticated;
+
+
+-- Source: 20261002030000_game_domain.sql
+-- Additive V1 async games. No Storage policy changes, deletes or realtime dependency.
+create function public.game_text_valid(v jsonb, max_length integer, required boolean default true)
+returns boolean language sql immutable set search_path = '' as $$
+  select jsonb_typeof(v) = 'string' and length(v #>> '{}') <= max_length
+    and (not required or length(btrim(v #>> '{}',chr(32)||chr(160)||chr(5760)||chr(8192)||chr(8193)||chr(8194)||chr(8195)||chr(8196)||chr(8197)||chr(8198)||chr(8199)||chr(8200)||chr(8201)||chr(8202)||chr(8239)||chr(8287)||chr(12288)||chr(65279))) > 0)
+    and (v #>> '{}') !~ '[\x01-\x1F\x7F]' and strpos(v #>> '{}',chr(8232)) = 0 and strpos(v #>> '{}',chr(8233)) = 0
+$$;
+create function public.game_move_valid(kind text, payload jsonb)
+returns boolean language plpgsql immutable set search_path = '' as $$
+begin
+  if jsonb_typeof(payload) is distinct from 'object' then return false; end if;
+  if kind in ('line','guess') then
+    return (select count(*) = 1 from jsonb_object_keys(payload)) and public.game_text_valid(payload->'text',case when kind = 'line' then 500 else 100 end) is true;
+  elsif kind = 'photo' then
+    return (select count(*) = 2 from jsonb_object_keys(payload))
+      and payload ?& array['mediaId','caption'] and jsonb_typeof(payload->'mediaId') = 'string'
+      and payload->>'mediaId' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+      and public.game_text_valid(payload->'caption',500,false) is true;
+  elsif kind = 'doodle' then
+    if public.board_payload_valid('doodle',payload,null) is not true or octet_length(payload::text) > 65536 then return false; end if;
+    return jsonb_array_length(payload->'strokes') > 0 and not exists(select 1 from jsonb_array_elements(payload->'strokes') s where jsonb_array_length(s->'points') = 0);
+  end if;
+  return false;
+end;
+$$;
+create table public.game_sessions (
+  id uuid primary key,
+  house_id uuid not null references public.houses(id),
+  game_type text not null check(game_type in ('doodle-relay','draw-guess','one-line-story','photo-mission')),
+  created_by uuid not null,
+  prompt text not null check(length(prompt) <= 500),
+  turn_limit integer not null check(turn_limit between 2 and 12),
+  status text not null default 'active' check(status in ('active','completed')),
+  version integer not null default 1 check(version between 1 and 13),
+  current_turn_user_id uuid,
+  phase text check(phase in ('doodle','drawing','guess','line','photo')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  completed_at timestamptz,
+  unique(house_id,id),
+  foreign key(house_id,created_by) references public.house_members(house_id,user_id),
+  foreign key(house_id,current_turn_user_id) references public.house_members(house_id,user_id),
+  check((status = 'active' and current_turn_user_id is not null and phase is not null and completed_at is null)
+    or (status = 'completed' and current_turn_user_id is null and phase is null and completed_at is not null)),
+  check(game_type <> 'draw-guess' or prompt = '' and turn_limit = 4),
+  check(game_type <> 'photo-mission' or turn_limit = 2)
+);
+create table public.game_players (
+  session_id uuid not null,
+  house_id uuid not null,
+  user_id uuid not null,
+  seat integer not null check(seat in (0,1)),
+  primary key(session_id,user_id),
+  unique(session_id,seat),
+  foreign key(house_id,session_id) references public.game_sessions(house_id,id),
+  foreign key(house_id,user_id) references public.house_members(house_id,user_id)
+);
+create table public.game_events (
+  session_id uuid not null,
+  house_id uuid not null,
+  sequence integer not null check(sequence between 1 and 12),
+  operation_id uuid not null unique,
+  actor_id uuid not null,
+  kind text not null,
+  payload jsonb not null check(public.game_move_valid(kind,payload)),
+  media_id uuid,
+  created_at timestamptz not null default now(),
+  primary key(session_id,sequence),
+  foreign key(house_id,session_id) references public.game_sessions(house_id,id),
+  foreign key(session_id,actor_id) references public.game_players(session_id,user_id),
+  foreign key(house_id,media_id) references public.media_objects(house_id,id),
+  check((kind = 'photo' and media_id is not null and payload->>'mediaId' = media_id::text) or (kind <> 'photo' and media_id is null))
+);
+create table public.game_answers (
+  session_id uuid primary key,
+  house_id uuid not null,
+  owner_id uuid not null,
+  answer text not null check(public.game_text_valid(to_jsonb(answer),100)),
+  foreign key(house_id,session_id) references public.game_sessions(house_id,id),
+  foreign key(session_id,owner_id) references public.game_players(session_id,user_id)
+);
+create table public.game_artifacts (
+  session_id uuid primary key,
+  house_id uuid not null,
+  data jsonb not null,
+  created_at timestamptz not null default now(),
+  foreign key(house_id,session_id) references public.game_sessions(house_id,id)
+);
+create table public.game_operations (
+  operation_id uuid primary key,
+  house_id uuid not null,
+  session_id uuid not null,
+  actor_id uuid not null,
+  request jsonb not null,
+  outcome text not null check(outcome in ('applied','conflict')),
+  snapshot jsonb not null,
+  created_at timestamptz not null default now(),
+  foreign key(house_id,session_id) references public.game_sessions(house_id,id),
+  foreign key(session_id,actor_id) references public.game_players(session_id,user_id)
+);
+create index game_sessions_house_recent on public.game_sessions(house_id,updated_at desc);
+create index game_operations_actor on public.game_operations(house_id,actor_id);
+alter table public.game_sessions enable row level security;
+alter table public.game_players enable row level security;
+alter table public.game_events enable row level security;
+alter table public.game_answers enable row level security;
+alter table public.game_artifacts enable row level security;
+alter table public.game_operations enable row level security;
+revoke all on public.game_sessions,public.game_players,public.game_events,public.game_answers,public.game_artifacts,public.game_operations from public,anon,authenticated;
+grant select on public.game_sessions,public.game_players,public.game_events,public.game_answers,public.game_artifacts,public.game_operations to authenticated;
+create policy game_sessions_read on public.game_sessions for select to authenticated using(public.is_house_member(house_id) and exists(select 1 from public.houses h where h.id = house_id and h.state = 'active'));
+create policy game_players_read on public.game_players for select to authenticated using(public.is_house_member(house_id) and exists(select 1 from public.game_sessions s where s.id = session_id));
+create policy game_events_read on public.game_events for select to authenticated using(public.is_house_member(house_id) and exists(select 1 from public.game_sessions s where s.id = session_id));
+create policy game_artifacts_read on public.game_artifacts for select to authenticated using(public.is_house_member(house_id) and exists(select 1 from public.game_sessions s where s.id = session_id and s.status = 'completed'));
+create policy game_answers_read on public.game_answers for select to authenticated using(public.is_house_member(house_id) and exists(select 1 from public.game_sessions s where s.id = session_id and (owner_id = auth.uid() or s.status = 'completed')));
+create policy game_operations_read on public.game_operations for select to authenticated using(actor_id = auth.uid() and public.is_house_member(house_id) and exists(select 1 from public.game_sessions s where s.id = session_id));
+
+-- Internal projection. Never grant this SECURITY DEFINER function to clients.
+create function public.game_snapshot(p_id uuid,p_actor uuid)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare s public.game_sessions; answer text; events jsonb; players jsonb; artifact jsonb;
+begin
+  select * into strict s from public.game_sessions where id = p_id;
+  select a.answer into answer from public.game_answers a where a.session_id = p_id and (a.owner_id = p_actor or s.status = 'completed');
+  select coalesce(jsonb_agg(jsonb_build_object('sequence',e.sequence,'actorId',e.actor_id,'operationId',e.operation_id,'createdAt',e.created_at,'kind',e.kind,'payload',e.payload) order by e.sequence),'[]'::jsonb) into events from public.game_events e where e.session_id = p_id;
+  select jsonb_agg(jsonb_build_object('userId',p.user_id,'seat',p.seat) order by p.seat) into players from public.game_players p where p.session_id = p_id;
+  select a.data into artifact from public.game_artifacts a where a.session_id = p_id;
+  return jsonb_build_object('id',s.id,'houseId',s.house_id,'gameType',s.game_type,'createdBy',s.created_by,'prompt',s.prompt,'turnLimit',s.turn_limit,'players',players,'status',s.status,'version',s.version,
+    'turn',case when s.status = 'active' then jsonb_build_object('number',s.version,'userId',s.current_turn_user_id,'phase',s.phase) else null end,
+    'events',events,'answer',answer,'artifact',artifact);
+end;
+$$;
+revoke all on function public.game_snapshot(uuid,uuid) from public,anon,authenticated;
+
+create function public.get_game_session(p_house_id uuid,p_session_id uuid)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare actor uuid := auth.uid();
+begin
+  if actor is null then raise exception 'Authentication required' using errcode = '28000'; end if;
+  if public.current_house_id() is distinct from p_house_id then raise exception 'House required' using errcode = '42501'; end if;
+  perform 1 from public.houses where id = p_house_id and state = 'active' for share;
+  if not found then raise exception 'Active House required' using errcode = '42501'; end if;
+  perform 1 from public.house_members where house_id = p_house_id and user_id = actor and status = 'active' for share;
+  if not found then raise exception 'Active member required' using errcode = '42501'; end if;
+  perform 1 from public.game_sessions where id = p_session_id and house_id = p_house_id for share;
+  if public.current_house_id() is distinct from p_house_id or not exists(select 1 from public.houses h where h.id = p_house_id and h.state = 'active')
+    or not exists(select 1 from public.game_players p join public.house_members m on m.house_id = p.house_id and m.user_id = p.user_id and m.status = 'active' where p.house_id = p_house_id and p.session_id = p_session_id and p.user_id = actor)
+    then raise exception 'Game access denied' using errcode = '42501'; end if;
+  return public.game_snapshot(p_session_id,actor);
+end;
+$$;
+
+create function public.apply_game_command(p_house_id uuid,p_command jsonb)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare
+  actor uuid := auth.uid(); op uuid; sid uuid; expected integer; kind text; payload jsonb;
+  game_type text; prompt text; turn_limit integer; partner uuid; s public.game_sessions; previous public.game_operations;
+  outcome text := 'applied'; result jsonb; answer text; complete boolean := false; next_phase text; photo uuid;
+begin
+  if actor is null then raise exception 'Authentication required' using errcode = '28000'; end if;
+  if jsonb_typeof(p_command) is distinct from 'object' then raise exception 'Invalid command' using errcode = '22023'; end if;
+  if not p_command ?& array['operationId','sessionId','expectedVersion','kind','payload'] or (select count(*) from jsonb_object_keys(p_command)) <> 5
+    or jsonb_typeof(p_command->'operationId') is distinct from 'string' or jsonb_typeof(p_command->'sessionId') is distinct from 'string'
+    or p_command->>'operationId' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    or p_command->>'sessionId' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    or jsonb_typeof(p_command->'expectedVersion') is distinct from 'number' or (p_command->>'expectedVersion') !~ '^[0-9]+$'
+    or (p_command->>'expectedVersion')::numeric > 2147483646 then raise exception 'Invalid command' using errcode = '22023'; end if;
+  begin op := (p_command->>'operationId')::uuid; sid := (p_command->>'sessionId')::uuid; expected := (p_command->>'expectedVersion')::integer;
+  exception when invalid_text_representation then raise exception 'Invalid command identity' using errcode = '22023'; end;
+  if op is null or sid is null then raise exception 'Command identity required' using errcode = '22023'; end if;
+  kind := p_command->>'kind'; payload := p_command->'payload';
+  if kind = 'create' then
+    if expected <> 0 or jsonb_typeof(payload) is distinct from 'object' then raise exception 'Invalid creation' using errcode = '22023'; end if;
+    game_type := payload->>'gameType'; prompt := payload->>'prompt';
+    if (select count(*) from jsonb_object_keys(payload)) <> 3 or not payload ?& array['gameType','prompt','turnLimit']
+      or game_type is null or game_type not in ('doodle-relay','draw-guess','one-line-story','photo-mission')
+      or public.game_text_valid(payload->'prompt',case when game_type = 'draw-guess' then 100 else 500 end) is not true
+      or jsonb_typeof(payload->'turnLimit') is distinct from 'number' or payload->>'turnLimit' !~ '^[0-9]+$'
+      or (payload->>'turnLimit')::numeric not between 2 and 12 then raise exception 'Invalid creation' using errcode = '22023'; end if;
+    turn_limit := (payload->>'turnLimit')::integer;
+    if game_type = 'draw-guess' and turn_limit <> 4 or game_type = 'photo-mission' and turn_limit <> 2 then raise exception 'Invalid turn limit' using errcode = '22023'; end if;
+  elsif expected < 1 or public.game_move_valid(kind,payload) is not true then raise exception 'Invalid move' using errcode = '22023'; end if;
+  if public.current_house_id() is distinct from p_house_id then raise exception 'House required' using errcode = '42501'; end if;
+  perform pg_advisory_xact_lock(hashtextextended('game_operation:' || op::text,0));
+  perform 1 from public.houses where id = p_house_id and state = 'active' for update;
+  if not found then raise exception 'Active House required' using errcode = '42501'; end if;
+  perform 1 from public.house_members where house_id = p_house_id and status = 'active' order by user_id for share;
+  if (select count(*) from public.house_members where house_id = p_house_id and status = 'active') <> 2
+    or not exists(select 1 from public.house_members where house_id = p_house_id and user_id = actor and status = 'active') then raise exception 'Two active members required' using errcode = '42501'; end if;
+  select * into previous from public.game_operations where operation_id = op;
+  if found then
+    if previous.house_id <> p_house_id or previous.actor_id <> actor or previous.request <> p_command then raise exception 'Operation identity mismatch' using errcode = '23505'; end if;
+    return jsonb_build_object('operationId',op,'actorId',actor,'houseId',p_house_id,'request',p_command,'outcome',previous.outcome,'snapshot',previous.snapshot);
+  end if;
+  select * into s from public.game_sessions where id = sid for update;
+  if found then
+    if s.house_id <> p_house_id or not exists(select 1 from public.game_players where session_id = sid and user_id = actor)
+      or exists(select 1 from public.game_players p where p.session_id = sid and not exists(select 1 from public.house_members m where m.house_id = p_house_id and m.user_id = p.user_id and m.status = 'active')) then raise exception 'Session access denied' using errcode = '42501'; end if;
+    if kind = 'create' or s.version <> expected or s.status = 'completed' or s.current_turn_user_id <> actor then outcome := 'conflict'; end if;
+  elsif kind <> 'create' then raise exception 'Session unavailable' using errcode = 'P0002'; end if;
+  if outcome = 'applied' and kind = 'create' then
+    select user_id into partner from public.house_members where house_id = p_house_id and user_id <> actor and status = 'active';
+    next_phase := case game_type when 'doodle-relay' then 'doodle' when 'draw-guess' then 'drawing' when 'one-line-story' then 'line' else 'photo' end;
+    insert into public.game_sessions(id,house_id,game_type,created_by,prompt,turn_limit,current_turn_user_id,phase)
+      values(sid,p_house_id,game_type,actor,case when game_type = 'draw-guess' then '' else prompt end,turn_limit,actor,next_phase);
+    insert into public.game_players(session_id,house_id,user_id,seat) values(sid,p_house_id,actor,0),(sid,p_house_id,partner,1);
+    if game_type = 'draw-guess' then insert into public.game_answers(session_id,house_id,owner_id,answer) values(sid,p_house_id,actor,prompt); end if;
+  elsif outcome = 'applied' then
+    if not (s.phase = kind or s.phase = 'drawing' and kind = 'doodle') then raise exception 'Wrong move for phase' using errcode = '22023'; end if;
+    if kind = 'photo' then
+      photo := (payload->>'mediaId')::uuid;
+      perform 1 from public.media_objects where id = photo and house_id = p_house_id and owner_id = actor and media_type = 'photo' and state = 'ready' for share;
+      if not found then raise exception 'Ready owned House photo required' using errcode = '42501'; end if;
+    end if;
+    insert into public.game_events(session_id,house_id,sequence,operation_id,actor_id,kind,payload,media_id) values(sid,p_house_id,s.version,op,actor,kind,payload,photo);
+    select user_id into partner from public.game_players where session_id = sid and user_id <> actor;
+    if s.game_type = 'draw-guess' then
+      select a.answer into answer from public.game_answers a where a.session_id = sid;
+      complete := kind = 'guess' and (btrim(payload->>'text') = btrim(answer) or s.version >= 4);
+      next_phase := 'guess';
+      if kind = 'guess' then partner := actor; end if;
+    else complete := s.version >= s.turn_limit; next_phase := s.phase; end if;
+    update public.game_sessions set version = version+1, status = case when complete then 'completed' else 'active' end,
+      current_turn_user_id = case when complete then null else partner end, phase = case when complete then null else next_phase end,
+      updated_at = now(), completed_at = case when complete then now() else null end where id = sid;
+    if complete then
+      result := public.game_snapshot(sid,actor);
+      insert into public.game_artifacts(session_id,house_id,data) values(sid,p_house_id,jsonb_build_object('sessionId',sid,'gameType',s.game_type,'events',result->'events','answer',result->'answer'));
+    end if;
+  end if;
+  result := public.game_snapshot(sid,actor);
+  insert into public.game_operations(operation_id,house_id,session_id,actor_id,request,outcome,snapshot) values(op,p_house_id,sid,actor,p_command,outcome,result);
+  return jsonb_build_object('operationId',op,'actorId',actor,'houseId',p_house_id,'request',p_command,'outcome',outcome,'snapshot',result);
+end;
+$$;
+revoke all on function public.game_text_valid(jsonb,integer,boolean),public.game_move_valid(text,jsonb) from public,anon;
+grant execute on function public.game_text_valid(jsonb,integer,boolean),public.game_move_valid(text,jsonb) to authenticated;
+revoke all on function public.get_game_session(uuid,uuid),public.apply_game_command(uuid,jsonb) from public,anon;
+grant execute on function public.get_game_session(uuid,uuid),public.apply_game_command(uuid,jsonb) to authenticated;
+
+
+-- Source: 20261002040000_island_event_projection.sql
+-- Additive event-sourced Island. Clients can read, never grant themselves growth.
+create unique index game_artifacts_house_island on public.game_artifacts(house_id,session_id);
+create table public.island_events (
+  id uuid primary key default gen_random_uuid(),
+  house_id uuid not null references public.houses(id),
+  event_type text not null check (event_type in ('GAME_COMPLETED','MEMORY_CREATED','MISSION_COMPLETED','MILESTONE_CREATED','WEEKLY_ACTIVITY')),
+  source_type text not null,
+  source_id text not null,
+  game_session_id uuid,
+  created_at timestamptz not null,
+  unique(house_id,event_type,source_type,source_id),
+  foreign key(house_id,game_session_id) references public.game_artifacts(house_id,session_id),
+  check (
+    (event_type in ('GAME_COMPLETED','MISSION_COMPLETED') and source_type = 'game-artifact' and game_session_id is not null and source_id = game_session_id::text)
+    or (event_type = 'MEMORY_CREATED' and source_type = 'confirmed-memory' and game_session_id is null and source_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+    or (event_type = 'MILESTONE_CREATED' and source_type = 'milestone' and game_session_id is null and source_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')
+    or (event_type = 'WEEKLY_ACTIVITY' and source_type = 'activity-week' and game_session_id is null and source_id = to_char(date_trunc('week',created_at at time zone 'UTC'),'YYYY-MM-DD'))
+  )
+);
+create index island_events_house_history on public.island_events(house_id,created_at,id);
+alter table public.island_events enable row level security;
+revoke all on public.island_events from public,anon,authenticated;
+grant select on public.island_events to authenticated;
+create policy island_events_read on public.island_events for select to authenticated using(public.is_house_member(house_id));
+
+-- Aggregate view has no mutable level, cache or lost-update race. Invoker RLS
+-- also filters the Houses used to produce a version-0 empty state.
+create view public.island_state with (security_invoker = true) as
+select h.id as house_id, 1 as rules_version, count(e.id)::integer as version,
+  max(e.created_at) as updated_at,
+  count(distinct (e.source_type,e.source_id)) filter(where e.event_type <> 'WEEKLY_ACTIVITY')::integer as history_items,
+  jsonb_build_object(
+    'GAME_COMPLETED',count(*) filter(where e.event_type = 'GAME_COMPLETED'),
+    'MEMORY_CREATED',count(*) filter(where e.event_type = 'MEMORY_CREATED'),
+    'MISSION_COMPLETED',count(*) filter(where e.event_type = 'MISSION_COMPLETED'),
+    'MILESTONE_CREATED',count(*) filter(where e.event_type = 'MILESTONE_CREATED'),
+    'WEEKLY_ACTIVITY',count(*) filter(where e.event_type = 'WEEKLY_ACTIVITY')) as contributions,
+  jsonb_build_object(
+    'sharedHistory',count(e.id) filter(where e.event_type <> 'WEEKLY_ACTIVITY') > 0,
+    'memories',count(e.id) filter(where e.event_type = 'MEMORY_CREATED') > 0,
+    'missions',count(e.id) filter(where e.event_type = 'MISSION_COMPLETED') > 0,
+    'milestones',count(e.id) filter(where e.event_type = 'MILESTONE_CREATED') > 0,
+    'weeklyHistory',count(e.id) filter(where e.event_type = 'WEEKLY_ACTIVITY') > 0) as world
+from public.houses h left join public.island_events e on e.house_id = h.id
+where h.state = 'active'
+group by h.id;
+revoke all on public.island_state from public,anon,authenticated;
+grant select on public.island_state to authenticated;
+
+create function public.get_island_state(p_house_id uuid)
+returns jsonb language plpgsql stable security invoker set search_path = '' as $$
+declare result jsonb;
+begin
+  if auth.uid() is null or not public.is_house_member(p_house_id) then
+    raise exception 'House access required' using errcode = '42501';
+  end if;
+  select jsonb_build_object('houseId',s.house_id,'rulesVersion',s.rules_version,'version',s.version,
+    'updatedAt',s.updated_at,'historyItems',s.history_items,'contributions',s.contributions,'world',s.world)
+  into result from public.island_state s where s.house_id = p_house_id;
+  return result;
+end;
+$$;
+revoke all on function public.get_island_state(uuid) from public,anon,authenticated;
+grant execute on function public.get_island_state(uuid) to authenticated;
+
+-- Internal emitter reads completion truth; no event type, House or time from a client.
+create function public.island_record_game(p_session_id uuid)
+returns void language plpgsql security definer set search_path = '' as $$
+declare s public.game_sessions;
+begin
+  select gs.* into strict s from public.game_sessions gs
+    join public.game_artifacts a on a.house_id = gs.house_id and a.session_id = gs.id
+    where gs.id = p_session_id and gs.status = 'completed' and gs.completed_at is not null;
+  insert into public.island_events(house_id,event_type,source_type,source_id,game_session_id,created_at)
+    values(s.house_id,'GAME_COMPLETED','game-artifact',s.id::text,s.id,s.completed_at) on conflict do nothing;
+  if s.game_type = 'photo-mission' then
+    insert into public.island_events(house_id,event_type,source_type,source_id,game_session_id,created_at)
+      values(s.house_id,'MISSION_COMPLETED','game-artifact',s.id::text,s.id,s.completed_at) on conflict do nothing;
+  end if;
+  insert into public.island_events(house_id,event_type,source_type,source_id,created_at)
+    values(s.house_id,'WEEKLY_ACTIVITY','activity-week',to_char(date_trunc('week',s.completed_at at time zone 'UTC'),'YYYY-MM-DD'),s.completed_at) on conflict do nothing;
+end;
+$$;
+revoke all on function public.island_record_game(uuid) from public,anon,authenticated;
+create function public.island_game_completed()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  perform public.island_record_game(new.session_id);
+  return new;
+end;
+$$;
+revoke all on function public.island_game_completed() from public,anon,authenticated;
+create trigger island_game_artifact_insert after insert on public.game_artifacts
+  for each row execute function public.island_game_completed();
+
+-- Preserve existing completed history, in the same migration transaction.
+do $$
+declare s record;
+begin
+  for s in select gs.id from public.game_sessions gs join public.game_artifacts a on a.session_id = gs.id and a.house_id = gs.house_id
+    where gs.status = 'completed' order by gs.completed_at,gs.id
+  loop perform public.island_record_game(s.id); end loop;
+end;
+$$;
+
+
+-- Source: 20261002050000_letters_core.sql
+-- Private Letters: time gates, immutable sends, explicit opens and short-lived joint reveal.
+create function public.letter_text_valid(v jsonb,max_length integer,required boolean default true)
+returns boolean language sql immutable set search_path = '' as $$
+  select jsonb_typeof(v) = 'string' and length(v #>> '{}') <= max_length
+    and (not required or length(btrim(v #>> '{}',chr(32)||chr(9)||chr(10)||chr(13)||chr(160)||chr(5760)||chr(8192)||chr(8193)||chr(8194)||chr(8195)||chr(8196)||chr(8197)||chr(8198)||chr(8199)||chr(8200)||chr(8201)||chr(8202)||chr(8232)||chr(8233)||chr(8239)||chr(8287)||chr(12288)||chr(65279))) > 0)
+    and (v #>> '{}') !~ '[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]'
+$$;
+create function public.letter_delivery_valid(v jsonb)
+returns boolean language plpgsql stable set search_path = '' as $$
+declare zone text; local_time timestamp; instant timestamptz;
+begin
+  if jsonb_typeof(v) is distinct from 'object' then return false; end if;
+  if v->>'mode' = 'immediate' then return (select count(*) = 1 from jsonb_object_keys(v)); end if;
+  if v->>'mode' is distinct from 'scheduled' or (select count(*) from jsonb_object_keys(v)) <> 4
+    or not v ?& array['mode','deliverAt','localDateTime','timeZone']
+    or jsonb_typeof(v->'deliverAt') is distinct from 'string' or jsonb_typeof(v->'localDateTime') is distinct from 'string' or jsonb_typeof(v->'timeZone') is distinct from 'string'
+    or v->>'deliverAt' !~ '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$'
+    or v->>'localDateTime' !~ '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$' then return false; end if;
+  zone := v->>'timeZone';
+  if length(zone) > 100 or not exists(select 1 from pg_catalog.pg_timezone_names where name = zone) then return false; end if;
+  local_time := (v->>'localDateTime')::timestamp; instant := (v->>'deliverAt')::timestamptz;
+  return extract(year from local_time) between 2000 and 2100
+    and to_char(local_time,'YYYY-MM-DD"T"HH24:MI') = v->>'localDateTime'
+    and instant at time zone zone = local_time;
+exception when others then return false;
+end;
+$$;
+create table public.letters (
+  id uuid primary key,
+  house_id uuid not null references public.houses(id),
+  sender_id uuid not null, recipient_id uuid not null,
+  delivery_mode text not null check(delivery_mode in ('immediate','scheduled')),
+  deliver_at timestamptz not null,
+  time_zone text, local_delivery_time timestamp,
+  clue text not null check(public.letter_text_valid(to_jsonb(clue),80,false) and clue !~ '[\x09\x0A\x0D]'),
+  reveal_together boolean not null,
+  created_at timestamptz not null,
+  unique(house_id,id), unique(house_id,id,sender_id), unique(house_id,id,recipient_id),
+  foreign key(house_id,sender_id) references public.house_members(house_id,user_id),
+  foreign key(house_id,recipient_id) references public.house_members(house_id,user_id),
+  check(sender_id <> recipient_id),
+  check((delivery_mode = 'immediate' and time_zone is null and local_delivery_time is null and deliver_at = created_at)
+    or (delivery_mode = 'scheduled' and time_zone is not null and local_delivery_time is not null and deliver_at > created_at))
+);
+create table public.letter_contents (
+  letter_id uuid primary key, house_id uuid not null, sender_id uuid not null,
+  content text not null check(public.letter_text_valid(to_jsonb(content),2000)),
+  foreign key(house_id,letter_id,sender_id) references public.letters(house_id,id,sender_id)
+);
+-- Separate recipient-private opening truth avoids default sender read receipts.
+create table public.letter_openings (
+  letter_id uuid primary key, house_id uuid not null, recipient_id uuid not null,
+  mode text not null check(mode in ('single','together')), opened_at timestamptz not null,
+  foreign key(house_id,letter_id,recipient_id) references public.letters(house_id,id,recipient_id)
+);
+create table public.letter_operations (
+  operation_id uuid primary key, letter_id uuid not null, house_id uuid not null, actor_id uuid not null,
+  request jsonb not null, snapshot jsonb not null, created_at timestamptz not null default now(),
+  foreign key(house_id,letter_id) references public.letters(house_id,id),
+  foreign key(house_id,actor_id) references public.house_members(house_id,user_id)
+);
+create table public.letter_reveal_sessions (
+  id uuid primary key default gen_random_uuid(), letter_id uuid not null, house_id uuid not null,
+  expires_at timestamptz not null, closed_at timestamptz,
+  unique(house_id,id), foreign key(house_id,letter_id) references public.letters(house_id,id)
+);
+create unique index letter_reveal_active on public.letter_reveal_sessions(letter_id) where closed_at is null;
+create table public.letter_reveal_participants (
+  session_id uuid not null, house_id uuid not null, user_id uuid not null,
+  heartbeat_at timestamptz, ready boolean not null default false,
+  primary key(session_id,user_id),
+  foreign key(house_id,session_id) references public.letter_reveal_sessions(house_id,id),
+  foreign key(house_id,user_id) references public.house_members(house_id,user_id),
+  check(not ready or heartbeat_at is not null)
+);
+create index letters_house_delivery on public.letters(house_id,deliver_at desc,id);
+alter table public.letters enable row level security;
+alter table public.letter_contents enable row level security;
+alter table public.letter_openings enable row level security;
+alter table public.letter_operations enable row level security;
+alter table public.letter_reveal_sessions enable row level security;
+alter table public.letter_reveal_participants enable row level security;
+revoke all on public.letters,public.letter_contents,public.letter_openings,public.letter_operations,public.letter_reveal_sessions,public.letter_reveal_participants from public,anon,authenticated;
+grant select on public.letters,public.letter_contents,public.letter_openings,public.letter_operations to authenticated;
+create policy letters_read on public.letters for select to authenticated using(public.is_house_member(house_id) and (sender_id = auth.uid() or recipient_id = auth.uid() and deliver_at <= statement_timestamp()));
+create policy letter_openings_read on public.letter_openings for select to authenticated using(public.is_house_member(house_id) and exists(select 1 from public.letters l where l.id = letter_id and (l.recipient_id = auth.uid() or mode = 'together' and l.sender_id = auth.uid())));
+create policy letter_contents_read on public.letter_contents for select to authenticated using(public.is_house_member(house_id) and exists(
+  select 1 from public.letters l where l.id = letter_id and (l.sender_id = auth.uid() or l.recipient_id = auth.uid() and l.deliver_at <= statement_timestamp() and exists(select 1 from public.letter_openings o where o.letter_id = l.id))));
+create policy letter_operations_read on public.letter_operations for select to authenticated using(actor_id = auth.uid() and public.is_house_member(house_id));
+
+create function public.letter_snapshot(p_id uuid,p_actor uuid)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare l public.letters; body text; opened boolean; due boolean; author boolean; state text; delivery jsonb;
+begin
+  select * into strict l from public.letters where id = p_id;
+  if p_actor not in (l.sender_id,l.recipient_id) then return null; end if;
+  author := p_actor = l.sender_id; due := l.deliver_at <= clock_timestamp();
+  if not author and not due then return null; end if;
+  select exists(select 1 from public.letter_openings where letter_id = l.id) into opened;
+  if author or due and opened then select content into body from public.letter_contents where letter_id = l.id; end if;
+  state := case when not due then 'scheduled' when author and not l.reveal_together then 'sent' when opened then 'opened' else 'sealed' end;
+  delivery := case when l.delivery_mode = 'immediate' then jsonb_build_object('mode','immediate') else jsonb_build_object('mode','scheduled',
+    'deliverAt',to_char(l.deliver_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),'timeZone',l.time_zone,'localDateTime',to_char(l.local_delivery_time,'YYYY-MM-DD"T"HH24:MI')) end;
+  return jsonb_build_object('id',l.id,'houseId',l.house_id,'senderId',l.sender_id,'recipientId',l.recipient_id,
+    'delivery',delivery,'deliverAt',l.deliver_at,'createdAt',l.created_at,'clue',l.clue,'revealTogether',l.reveal_together,
+    'state',state,'version',case when state = 'opened' then 2 else 1 end,'content',body,
+    'canOpen',not author and not l.reveal_together and due and not opened,'canJoin',l.reveal_together and due and not opened);
+end;
+$$;
+revoke all on function public.letter_snapshot(uuid,uuid) from public,anon,authenticated;
+create function public.get_letter(p_house_id uuid,p_letter_id uuid)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+begin
+  if not public.is_house_member(p_house_id) then raise exception 'House access required' using errcode = '42501'; end if;
+  if not exists(select 1 from public.letters where id = p_letter_id and house_id = p_house_id) then return null; end if;
+  return public.letter_snapshot(p_letter_id,auth.uid());
+end;
+$$;
+revoke all on function public.get_letter(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.get_letter(uuid,uuid) to authenticated;
+
+create function public.apply_letter_command(p_house_id uuid,p_command jsonb)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare actor uuid := auth.uid(); op uuid; lid uuid; kind text; p jsonb; prior public.letter_operations; l public.letters; recipient uuid; instant timestamptz; v_now timestamptz; result jsonb;
+begin
+  if actor is null or public.current_house_id() is distinct from p_house_id then raise exception 'House access required' using errcode = '42501'; end if;
+  if jsonb_typeof(p_command) is distinct from 'object' or (p_command->>'operationId' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$') is not true
+    or (p_command->>'letterId' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$') is not true then raise exception 'Invalid letter command'; end if;
+  op := (p_command->>'operationId')::uuid; lid := (p_command->>'letterId')::uuid; kind := p_command->>'kind';
+  perform pg_advisory_xact_lock(hashtextextended(op::text,0));
+  perform 1 from public.houses where id = p_house_id and state = 'active' for update;
+  if not found then raise exception 'Active House required' using errcode = '42501'; end if;
+  perform 1 from public.house_members where house_id = p_house_id and status = 'active' for share;
+  if (select count(*) from public.house_members where house_id = p_house_id and status = 'active') <> 2
+    or not exists(select 1 from public.house_members where house_id = p_house_id and status = 'active' and user_id = actor) then raise exception 'Two active members required' using errcode = '42501'; end if;
+  select * into prior from public.letter_operations where operation_id = op;
+  if found then
+    if prior.actor_id <> actor or prior.house_id <> p_house_id or prior.request <> p_command then raise exception 'Operation identity mismatch' using errcode = '42501'; end if;
+    return jsonb_build_object('operationId',op,'actorId',actor,'houseId',p_house_id,'letterId',lid,'snapshot',prior.snapshot);
+  end if;
+  v_now := clock_timestamp();
+  if kind = 'send' then
+    p := p_command->'payload';
+    if (select count(*) from jsonb_object_keys(p_command)) <> 4 or not p_command ?& array['operationId','letterId','kind','payload']
+      or jsonb_typeof(p) is distinct from 'object' or (select count(*) from jsonb_object_keys(p)) <> 4 or not p ?& array['content','clue','delivery','revealTogether']
+      or public.letter_text_valid(p->'content',2000) is not true or public.letter_text_valid(p->'clue',80,false) is not true or p->>'clue' ~ '[\x09\x0A\x0D]'
+      or jsonb_typeof(p->'revealTogether') is distinct from 'boolean' or public.letter_delivery_valid(p->'delivery') is not true then raise exception 'Invalid letter payload'; end if;
+    select user_id into strict recipient from public.house_members where house_id = p_house_id and status = 'active' and user_id <> actor;
+    instant := case when p->'delivery'->>'mode' = 'immediate' then v_now else (p->'delivery'->>'deliverAt')::timestamptz end;
+    if p->'delivery'->>'mode' = 'scheduled' and instant <= v_now then raise exception 'Scheduled delivery must be in the future'; end if;
+    insert into public.letters(id,house_id,sender_id,recipient_id,delivery_mode,deliver_at,time_zone,local_delivery_time,clue,reveal_together,created_at)
+      values(lid,p_house_id,actor,recipient,p->'delivery'->>'mode',instant,p->'delivery'->>'timeZone',(p->'delivery'->>'localDateTime')::timestamp,p->>'clue',(p->>'revealTogether')::boolean,v_now);
+    insert into public.letter_contents(letter_id,house_id,sender_id,content) values(lid,p_house_id,actor,p->>'content');
+  elsif kind = 'open' then
+    if (select count(*) from jsonb_object_keys(p_command)) <> 3 or not p_command ?& array['operationId','letterId','kind'] then raise exception 'Invalid open command'; end if;
+    select * into strict l from public.letters where id = lid and house_id = p_house_id for update;
+    if l.recipient_id <> actor or l.reveal_together or l.deliver_at > v_now then raise exception 'Letter cannot be opened' using errcode = '42501'; end if;
+    insert into public.letter_openings(letter_id,house_id,recipient_id,mode,opened_at) values(lid,p_house_id,actor,'single',v_now) on conflict(letter_id) do nothing;
+  else raise exception 'Unknown letter command'; end if;
+  result := public.letter_snapshot(lid,actor);
+  insert into public.letter_operations(operation_id,letter_id,house_id,actor_id,request,snapshot) values(op,lid,p_house_id,actor,p_command,result);
+  return jsonb_build_object('operationId',op,'actorId',actor,'houseId',p_house_id,'letterId',lid,'snapshot',result);
+end;
+$$;
+revoke all on function public.apply_letter_command(uuid,jsonb) from public,anon,authenticated;
+grant execute on function public.apply_letter_command(uuid,jsonb) to authenticated;
+
+create function public.apply_letter_reveal(p_house_id uuid,p_command jsonb)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare actor uuid := auth.uid(); lid uuid; sid uuid; kind text; l public.letters; room public.letter_reveal_sessions; v_now timestamptz; mine public.letter_reveal_participants; connected integer; opened boolean; active boolean;
+begin
+  if actor is null or public.current_house_id() is distinct from p_house_id then raise exception 'House access required' using errcode = '42501'; end if;
+  if jsonb_typeof(p_command) is distinct from 'object' or (select count(*) from jsonb_object_keys(p_command)) <> 3 or not p_command ?& array['letterId','sessionId','kind'] then raise exception 'Invalid reveal command'; end if;
+  lid := (p_command->>'letterId')::uuid; kind := p_command->>'kind';
+  if kind not in ('join','heartbeat','ready','leave') or kind is null then raise exception 'Unknown reveal action'; end if;
+  if kind = 'join' and p_command->'sessionId' is distinct from 'null'::jsonb or kind <> 'join' and jsonb_typeof(p_command->'sessionId') is distinct from 'string' then raise exception 'Invalid reveal session'; end if;
+  perform 1 from public.houses where id = p_house_id and state = 'active' for update;
+  if not found then raise exception 'Active House required' using errcode = '42501'; end if;
+  perform 1 from public.house_members where house_id = p_house_id and status = 'active' for share;
+  if (select count(*) from public.house_members where house_id = p_house_id and status = 'active') <> 2 or not exists(select 1 from public.house_members where house_id = p_house_id and user_id = actor and status = 'active') then raise exception 'Two active members required' using errcode = '42501'; end if;
+  select * into strict l from public.letters where id = lid and house_id = p_house_id for update;
+  v_now := clock_timestamp();
+  if not l.reveal_together or actor not in (l.sender_id,l.recipient_id) or l.deliver_at > v_now then raise exception 'Joint reveal unavailable' using errcode = '42501'; end if;
+  select exists(select 1 from public.letter_openings where letter_id = lid) into opened;
+  if kind = 'join' then
+    select * into room from public.letter_reveal_sessions where letter_id = lid and closed_at is null for update;
+    if found and room.expires_at <= v_now then
+      update public.letter_reveal_sessions set closed_at = v_now where id = room.id;
+      room.id := null;
+    end if;
+    if room.id is null then
+      if opened then raise exception 'Letter already revealed'; end if;
+      insert into public.letter_reveal_sessions(letter_id,house_id,expires_at) values(lid,p_house_id,v_now + interval '120 seconds') returning * into room;
+    end if;
+    insert into public.letter_reveal_participants(session_id,house_id,user_id,heartbeat_at) values(room.id,p_house_id,actor,v_now)
+      on conflict(session_id,user_id) do update set heartbeat_at = excluded.heartbeat_at,
+        ready = public.letter_reveal_participants.ready and public.letter_reveal_participants.heartbeat_at > v_now - interval '15 seconds';
+  else
+    sid := (p_command->>'sessionId')::uuid;
+    select * into strict room from public.letter_reveal_sessions where id = sid and letter_id = lid and house_id = p_house_id for update;
+    if not opened and room.closed_at is null and room.expires_at > v_now then
+      select * into mine from public.letter_reveal_participants where session_id = sid and user_id = actor;
+      if not found or mine.heartbeat_at is null then raise exception 'Join the reveal session first' using errcode = '42501'; end if;
+      if kind = 'leave' then
+        update public.letter_reveal_participants set heartbeat_at = null,ready = false where session_id = sid and user_id = actor;
+      else
+        -- A stale client cannot confirm with an old heartbeat; reconnect clears readiness.
+        update public.letter_reveal_participants set ready = case when kind = 'ready' then mine.heartbeat_at > v_now - interval '15 seconds' else mine.ready and mine.heartbeat_at > v_now - interval '15 seconds' end,
+          heartbeat_at = v_now where session_id = sid and user_id = actor;
+        if kind = 'ready' and (select count(*) from public.letter_reveal_participants where session_id = sid and user_id in (l.sender_id,l.recipient_id) and ready and heartbeat_at > v_now - interval '15 seconds') = 2 then
+          insert into public.letter_openings(letter_id,house_id,recipient_id,mode,opened_at) values(lid,p_house_id,l.recipient_id,'together',v_now) on conflict(letter_id) do nothing;
+          update public.letter_reveal_sessions set closed_at = v_now where id = sid;
+          opened := true;
+        end if;
+      end if;
+    end if;
+  end if;
+  active := not opened and room.closed_at is null and room.expires_at > v_now;
+  select * into mine from public.letter_reveal_participants where session_id = room.id and user_id = actor;
+  select count(*)::integer into connected from public.letter_reveal_participants where session_id = room.id and user_id in (l.sender_id,l.recipient_id) and heartbeat_at > v_now - interval '15 seconds';
+  return jsonb_build_object('sessionId',room.id,'letterId',lid,'houseId',p_house_id,'expiresAt',room.expires_at,
+    'status',case when opened then 'revealed' when active then 'active' else 'expired' end,
+    'connectedPlayers',case when active or opened then connected else 0 end,
+    'ownPresent',coalesce((active or opened) and mine.heartbeat_at > v_now - interval '15 seconds',false),
+    'ownReady',coalesce((active or opened) and mine.ready and mine.heartbeat_at > v_now - interval '15 seconds',false),
+    'snapshot',public.letter_snapshot(lid,actor));
+end;
+$$;
+revoke all on function public.apply_letter_reveal(uuid,jsonb) from public,anon,authenticated;
+grant execute on function public.apply_letter_reveal(uuid,jsonb) to authenticated;
+
+
+-- Source: 20261003010000_private_photos.sql
+-- Additive photo pipeline. Browser metadata writes remain forbidden.
+do $guard$
+begin
+  if to_regclass('storage.buckets') is null or to_regclass('storage.objects') is null then
+    raise exception 'Supabase Storage schema required';
+  end if;
+  if exists(select 1 from storage.buckets where id='nha-minh-private' and public) then
+    raise exception 'Existing public bucket requires explicit migration review. No data changed.';
+  end if;
+end;
+$guard$;
+insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
+values('nha-minh-private','nha-minh-private',false,4194304,array['image/jpeg'])
+on conflict(id) do nothing;
+
+-- No authenticated INSERT, UPDATE or DELETE policy. Uploads use server-only key.
+create policy nha_minh_private_photo_read on storage.objects for select to authenticated
+using(bucket_id='nha-minh-private' and exists(
+  select 1 from public.media_objects m
+  where m.bucket_id=storage.objects.bucket_id and m.storage_path=storage.objects.name
+    and m.media_type='photo' and m.state='ready' and public.is_house_member(m.house_id)
+));
+
+-- Supabase policies compose with OR by default. Restrictive guards protect this
+-- bucket even when an existing project has broad permissive policies elsewhere.
+create policy nha_minh_private_photo_read_guard on storage.objects as restrictive for select to authenticated
+using(bucket_id<>'nha-minh-private' or exists(
+  select 1 from public.media_objects m where m.bucket_id=storage.objects.bucket_id
+    and m.storage_path=storage.objects.name and m.media_type='photo'
+    and m.state='ready' and public.is_house_member(m.house_id)
+));
+create policy nha_minh_private_photo_insert_guard on storage.objects as restrictive for insert to authenticated
+with check(bucket_id<>'nha-minh-private');
+create policy nha_minh_private_photo_update_guard on storage.objects as restrictive for update to authenticated
+using(bucket_id<>'nha-minh-private') with check(bucket_id<>'nha-minh-private');
+create policy nha_minh_private_photo_delete_guard on storage.objects as restrictive for delete to authenticated
+using(bucket_id<>'nha-minh-private');
+
+-- Anonymous policies on other buckets must never open this private bucket.
+create policy nha_minh_private_photo_anon_guard on storage.objects as restrictive for all to anon
+using(bucket_id<>'nha-minh-private') with check(bucket_id<>'nha-minh-private');
+
+create function public.register_verified_photo(p_id uuid,p_house_id uuid,p_actor_id uuid,p_size bigint)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare result public.media_objects; object_size bigint;
+begin
+  if p_id is null or p_actor_id is null or p_size is null or p_size<1 or p_size>4194304 then raise exception 'Invalid photo'; end if;
+  perform 1 from public.houses where id=p_house_id and state='active' for update;
+  if not found then raise exception 'House access denied' using errcode='42501'; end if;
+  perform 1 from public.house_members where house_id=p_house_id and status='active' order by user_id for share;
+  if (select count(*) from public.house_members where house_id=p_house_id and status='active')<>2
+    or not exists(select 1 from public.house_members where house_id=p_house_id and user_id=p_actor_id and status='active') then
+    raise exception 'House access denied' using errcode='42501';
+  end if;
+  select (o.metadata->>'size')::bigint into object_size from storage.objects o
+    join storage.buckets b on b.id=o.bucket_id and not b.public
+    where o.bucket_id='nha-minh-private' and o.name=p_house_id::text||'/'||p_id::text
+      and o.metadata->>'mimetype'='image/jpeg' for share of o;
+  if object_size is null or object_size<>p_size then raise exception 'Uploaded bytes not confirmed'; end if;
+  insert into public.media_objects(id,house_id,owner_id,media_type,bucket_id,storage_path,state,mime_type,size_bytes)
+    values(p_id,p_house_id,p_actor_id,'photo','nha-minh-private',p_house_id::text||'/'||p_id::text,'ready','image/jpeg',p_size)
+    returning * into result;
+  return to_jsonb(result);
+end;
+$$;
+revoke all on function public.register_verified_photo(uuid,uuid,uuid,bigint) from public,anon,authenticated;
+grant execute on function public.register_verified_photo(uuid,uuid,uuid,bigint) to service_role;
+
+
+-- Source: 20261003015000_private_voice.sql
+-- Additive voice registration. Requires the existing private photo pipeline.
+do $guard$
+begin
+  if to_regprocedure('public.register_verified_photo(uuid,uuid,uuid,bigint)') is null
+    or not exists(select 1 from pg_policies where schemaname='storage' and tablename='objects' and policyname='nha_minh_private_photo_read_guard') then
+    raise exception 'Private photo pipeline required. No data changed.';
+  end if;
+  if not exists(select 1 from storage.buckets where id='nha-minh-private' and not public) then
+    raise exception 'Private media bucket required. No data changed.';
+  end if;
+end;
+$guard$;
+
+-- Keep the established 4 MiB bound and existing allowed types; add only PCM WAV.
+update storage.buckets
+set allowed_mime_types=case when allowed_mime_types is null then array['image/jpeg','audio/wav']
+  when not ('audio/wav'=any(allowed_mime_types)) then array_append(allowed_mime_types,'audio/wav') else allowed_mime_types end
+where id='nha-minh-private' and not public;
+
+create policy nha_minh_private_voice_read on storage.objects for select to authenticated
+using(bucket_id='nha-minh-private' and exists(
+  select 1 from public.media_objects m where m.bucket_id=storage.objects.bucket_id
+    and m.storage_path=storage.objects.name and m.media_type='audio' and m.mime_type='audio/wav'
+    and m.state='ready' and public.is_house_member(m.house_id)
+));
+-- Preserve the restrictive boundary against unrelated permissive policies.
+alter policy nha_minh_private_photo_read_guard on storage.objects
+using(bucket_id<>'nha-minh-private' or exists(
+  select 1 from public.media_objects m where m.bucket_id=storage.objects.bucket_id
+    and m.storage_path=storage.objects.name and (m.media_type='photo' or (m.media_type='audio' and m.mime_type='audio/wav'))
+    and m.state='ready' and public.is_house_member(m.house_id)
+));
+-- Authenticated/anonymous INSERT, UPDATE and DELETE guards remain untouched.
+
+create function public.register_verified_voice(p_id uuid,p_house_id uuid,p_actor_id uuid,p_size bigint,p_duration numeric)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare result public.media_objects; object_size bigint;
+begin
+  if p_id is null or p_actor_id is null or p_size is null or p_size<45 or p_size>4194304
+    or p_duration is null or p_duration<=0 or p_duration>60 then raise exception 'Invalid voice'; end if;
+  perform 1 from public.houses where id=p_house_id and state='active' for update;
+  if not found then raise exception 'House access denied' using errcode='42501'; end if;
+  perform 1 from public.house_members where house_id=p_house_id and status='active' order by user_id for share;
+  if (select count(*) from public.house_members where house_id=p_house_id and status='active')<>2
+    or not exists(select 1 from public.house_members where house_id=p_house_id and user_id=p_actor_id and status='active') then
+    raise exception 'House access denied' using errcode='42501';
+  end if;
+  select (o.metadata->>'size')::bigint into object_size from storage.objects o
+    join storage.buckets b on b.id=o.bucket_id and not b.public
+    where o.bucket_id='nha-minh-private' and o.name=p_house_id::text||'/'||p_id::text
+      and o.metadata->>'mimetype'='audio/wav' for share of o;
+  if object_size is null or object_size<>p_size then raise exception 'Uploaded bytes not confirmed'; end if;
+  insert into public.media_objects(id,house_id,owner_id,media_type,bucket_id,storage_path,state,mime_type,size_bytes,duration_seconds)
+    values(p_id,p_house_id,p_actor_id,'audio','nha-minh-private',p_house_id::text||'/'||p_id::text,'ready','audio/wav',p_size,p_duration)
+    returning * into result;
+  return to_jsonb(result);
+end;
+$$;
+revoke all on function public.register_verified_voice(uuid,uuid,uuid,bigint,numeric) from public,anon,authenticated;
+grant execute on function public.register_verified_voice(uuid,uuid,uuid,bigint,numeric) to service_role;
+
+
+-- Source: 20261003020000_island_journal.sql
+-- Shared, user-confirmed memories and milestones. Ledger history is never a
+-- mutable progress score; editing/trashing/restoring a page adds no events.
+create table public.island_entries (
+  id uuid primary key,
+  house_id uuid not null references public.houses(id),
+  created_by uuid not null references auth.users(id),
+  entry_type text not null check(entry_type in ('memory','milestone')),
+  title text not null check(length(btrim(title)) > 0 and length(title) <= 120),
+  body text not null default '' check(length(body) <= 4000),
+  occurred_on date not null,
+  source_session_id uuid,
+  version integer not null default 1 check(version > 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now() check(updated_at >= created_at),
+  trashed_at timestamptz,
+  unique(house_id,id),
+  foreign key(house_id,source_session_id) references public.game_artifacts(house_id,session_id),
+  check(source_session_id is null or entry_type = 'memory')
+);
+create unique index island_memory_source_once on public.island_entries(house_id,source_session_id) where source_session_id is not null;
+create index island_entries_history on public.island_entries(house_id,created_at desc,id desc);
+alter table public.island_entries enable row level security;
+revoke all on public.island_entries from public,anon,authenticated;
+grant select on public.island_entries to authenticated;
+create policy island_entries_read on public.island_entries for select to authenticated using(public.is_house_member(house_id));
+
+create table public.island_entry_operations (
+  actor_id uuid not null references auth.users(id),
+  operation_id uuid not null,
+  house_id uuid not null references public.houses(id),
+  command jsonb not null,
+  receipt jsonb not null,
+  created_at timestamptz not null default now(),
+  primary key(actor_id,operation_id)
+);
+alter table public.island_entry_operations enable row level security;
+revoke all on public.island_entry_operations from public,anon,authenticated;
+grant select on public.island_entry_operations to authenticated;
+create policy island_entry_operations_read on public.island_entry_operations for select to authenticated using(actor_id = auth.uid() and public.is_house_member(house_id));
+
+alter table public.island_events add column journal_entry_id uuid;
+alter table public.island_events add constraint island_event_journal_source_fk foreign key(house_id,journal_entry_id) references public.island_entries(house_id,id);
+alter table public.island_events add constraint island_event_journal_source_check check(
+  (event_type in ('MEMORY_CREATED','MILESTONE_CREATED') and journal_entry_id is not null and source_id = journal_entry_id::text)
+  or (event_type not in ('MEMORY_CREATED','MILESTONE_CREATED') and journal_entry_id is null)
+);
+
+create function public.island_entry_json(p_entry public.island_entries)
+returns jsonb language sql immutable security invoker set search_path = '' as $$
+  select jsonb_build_object('id',p_entry.id,'houseId',p_entry.house_id,'createdBy',p_entry.created_by,
+    'entryType',p_entry.entry_type,'title',p_entry.title,'body',p_entry.body,
+    'occurredOn',to_char(p_entry.occurred_on,'YYYY-MM-DD'),'sourceSessionId',p_entry.source_session_id,
+    'version',p_entry.version,'createdAt',p_entry.created_at,'updatedAt',p_entry.updated_at,'trashedAt',p_entry.trashed_at);
+$$;
+revoke all on function public.island_entry_json(public.island_entries) from public,anon,authenticated;
+
+create function public.get_island_entries(p_house_id uuid, p_before_created_at timestamptz default null, p_before_id uuid default null)
+returns jsonb language plpgsql stable security definer set search_path = '' as $$
+declare items jsonb; cursor_at timestamptz; cursor_id uuid; has_more boolean;
+begin
+  if auth.uid() is null or not public.is_house_member(p_house_id) then raise exception 'House access required' using errcode = '42501'; end if;
+  if (p_before_created_at is null) <> (p_before_id is null) then raise exception 'Invalid cursor' using errcode = '22023'; end if;
+  select coalesce(jsonb_agg(public.island_entry_json(e) order by e.created_at desc,e.id desc),'[]'::jsonb)
+  into items from (select * from public.island_entries where house_id = p_house_id
+    and (p_before_created_at is null or (created_at,id) < (p_before_created_at,p_before_id)) order by created_at desc,id desc limit 20) e;
+  if jsonb_array_length(items) > 0 then
+    cursor_at := (items -> (jsonb_array_length(items)-1) ->> 'createdAt')::timestamptz;
+    cursor_id := (items -> (jsonb_array_length(items)-1) ->> 'id')::uuid;
+    select exists(select 1 from public.island_entries where house_id = p_house_id and (created_at,id) < (cursor_at,cursor_id)) into has_more;
+  end if;
+  return jsonb_build_object('entries',items,'next',case when has_more then jsonb_build_object('createdAt',cursor_at,'id',cursor_id) else null end);
+end;
+$$;
+revoke all on function public.get_island_entries(uuid,timestamptz,uuid) from public,anon,authenticated;
+grant execute on function public.get_island_entries(uuid,timestamptz,uuid) to authenticated;
+
+create function public.get_island_entry(p_house_id uuid,p_entry_id uuid)
+returns jsonb language plpgsql stable security definer set search_path = '' as $$
+declare e public.island_entries;
+begin
+  if auth.uid() is null or not public.is_house_member(p_house_id) then raise exception 'House access required' using errcode = '42501'; end if;
+  select * into e from public.island_entries where house_id = p_house_id and id = p_entry_id;
+  if not found then return null; end if;
+  return public.island_entry_json(e);
+end;
+$$;
+revoke all on function public.get_island_entry(uuid,uuid) from public,anon,authenticated;
+grant execute on function public.get_island_entry(uuid,uuid) to authenticated;
+
+create function public.apply_island_entry_command(p_house_id uuid,p_command jsonb)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare actor uuid := auth.uid(); entry_id uuid; v_operation_id uuid; expected integer; kind text;
+  payload jsonb; e public.island_entries; operation public.island_entry_operations; result jsonb;
+  event_name text; source_name text; source_id uuid; occurred date; outcome text := 'applied';
+begin
+  if actor is null then raise exception 'House access required' using errcode = '42501'; end if;
+  perform 1 from public.houses where id = p_house_id and state = 'active' for update;
+  if not found then raise exception 'House access required' using errcode = '42501'; end if;
+  perform 1 from public.house_members where house_id = p_house_id and status = 'active' order by user_id for share;
+  if not public.is_house_member(p_house_id) or (select count(*) from public.house_members where house_id = p_house_id and status = 'active') <> 2 then raise exception 'Paired House access required' using errcode = '42501'; end if;
+  if jsonb_typeof(p_command) <> 'object' or length(p_command::text) > 20000
+    or not p_command ?& array['operationId','entryId','expectedVersion','kind','payload']
+    or exists(select 1 from jsonb_object_keys(p_command) k where k not in ('operationId','entryId','expectedVersion','kind','payload'))
+    or jsonb_typeof(p_command->'operationId') <> 'string' or jsonb_typeof(p_command->'entryId') <> 'string'
+    or jsonb_typeof(p_command->'expectedVersion') <> 'number' or (p_command->>'expectedVersion') !~ '^[0-9]+$'
+    or jsonb_typeof(p_command->'kind') <> 'string' or jsonb_typeof(p_command->'payload') <> 'object' then raise exception 'Invalid journal command' using errcode = '22023'; end if;
+  v_operation_id := (p_command->>'operationId')::uuid; entry_id := (p_command->>'entryId')::uuid;
+  expected := (p_command->>'expectedVersion')::integer; kind := p_command->>'kind'; payload := p_command->'payload';
+  select * into operation from public.island_entry_operations where actor_id = actor and island_entry_operations.operation_id = v_operation_id;
+  if found then
+    if operation.house_id <> p_house_id or operation.command <> p_command then raise exception 'Operation identity changed' using errcode = '22023'; end if;
+    return operation.receipt;
+  end if;
+  if kind not in ('create','update','trash','restore') then raise exception 'Invalid journal command' using errcode = '22023'; end if;
+  if kind in ('create','update') then
+    if not payload ?& array['title','body','occurredOn'] or jsonb_typeof(payload->'title') <> 'string' or length(btrim(payload->>'title')) = 0 or length(payload->>'title') > 120
+      or jsonb_typeof(payload->'body') <> 'string' or length(payload->>'body') > 4000
+      or jsonb_typeof(payload->'occurredOn') <> 'string' or (payload->>'occurredOn') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then raise exception 'Invalid journal content' using errcode = '22023'; end if;
+    occurred := (payload->>'occurredOn')::date;
+    if to_char(occurred,'YYYY-MM-DD') <> payload->>'occurredOn' then raise exception 'Invalid calendar date' using errcode = '22023'; end if;
+  end if;
+  if kind = 'create' then
+    if expected <> 0 or not payload ?& array['entryType','sourceSessionId','confirmed']
+      or exists(select 1 from jsonb_object_keys(payload) k where k not in ('title','body','occurredOn','entryType','sourceSessionId','confirmed'))
+      or jsonb_typeof(payload->'entryType') <> 'string' or payload->>'entryType' not in ('memory','milestone')
+      or jsonb_typeof(payload->'confirmed') <> 'boolean' or (payload->>'entryType' = 'memory' and payload->'confirmed' <> 'true'::jsonb)
+      or jsonb_typeof(payload->'sourceSessionId') not in ('string','null')
+      or (payload->>'entryType' = 'milestone' and payload->'sourceSessionId' <> 'null'::jsonb) then raise exception 'Memory confirmation and valid source required' using errcode = '22023'; end if;
+    source_id := (payload->>'sourceSessionId')::uuid;
+    if source_id is not null then
+      perform 1 from public.game_sessions gs join public.game_artifacts a on a.house_id = gs.house_id and a.session_id = gs.id
+        where gs.id = source_id and gs.house_id = p_house_id and gs.status = 'completed' and gs.completed_at is not null for share of gs,a;
+      if not found then raise exception 'Completed shared artifact required' using errcode = '42501'; end if;
+    end if;
+    select * into e from public.island_entries where id = entry_id or (source_id is not null and house_id = p_house_id and source_session_id = source_id);
+    if found then
+      if e.house_id <> p_house_id then raise exception 'Journal access required' using errcode = '42501'; end if;
+      -- A concurrent promotion of the same source is an explicit conflict,
+      -- never a duplicate memory or silently substituted page identity.
+      raise exception 'Journal entry or memory source already exists' using errcode = '23505';
+    end if;
+    insert into public.island_entries(id,house_id,created_by,entry_type,title,body,occurred_on,source_session_id)
+      values(entry_id,p_house_id,actor,payload->>'entryType',payload->>'title',payload->>'body',occurred,source_id) returning * into e;
+    event_name := case e.entry_type when 'memory' then 'MEMORY_CREATED' else 'MILESTONE_CREATED' end;
+    source_name := case e.entry_type when 'memory' then 'confirmed-memory' else 'milestone' end;
+    insert into public.island_events(house_id,event_type,source_type,source_id,journal_entry_id,created_at)
+      values(p_house_id,event_name,source_name,e.id::text,e.id,e.created_at);
+    insert into public.island_events(house_id,event_type,source_type,source_id,created_at)
+      values(p_house_id,'WEEKLY_ACTIVITY','activity-week',to_char(date_trunc('week',e.created_at at time zone 'UTC'),'YYYY-MM-DD'),e.created_at) on conflict do nothing;
+  else
+    if expected < 1 then raise exception 'Expected version required' using errcode = '22023'; end if;
+    select * into e from public.island_entries where id = entry_id and house_id = p_house_id for update;
+    if not found then raise exception 'Journal access required' using errcode = '42501'; end if;
+    if kind in ('trash','restore') and (e.created_by <> actor or payload <> '{}'::jsonb) then raise exception 'Creator access required' using errcode = '42501'; end if;
+    if kind = 'update' and exists(select 1 from jsonb_object_keys(payload) k where k not in ('title','body','occurredOn')) then raise exception 'Source and creator are immutable' using errcode = '22023'; end if;
+    if e.version <> expected then outcome := 'conflict';
+    elsif (kind in ('update','trash') and e.trashed_at is not null) or (kind = 'restore' and e.trashed_at is null) then outcome := 'conflict';
+    else
+      update public.island_entries set
+        title = case when kind = 'update' then payload->>'title' else title end,
+        body = case when kind = 'update' then payload->>'body' else body end,
+        occurred_on = case when kind = 'update' then occurred else occurred_on end,
+        trashed_at = case when kind = 'trash' then now() when kind = 'restore' then null else trashed_at end,
+        version = version + 1, updated_at = greatest(now(),created_at)
+        where id = e.id returning * into e;
+    end if;
+  end if;
+  result := jsonb_build_object('operationId',v_operation_id,'entryId',entry_id,'outcome',outcome,'entry',public.island_entry_json(e));
+  insert into public.island_entry_operations(actor_id,operation_id,house_id,command,receipt) values(actor,v_operation_id,p_house_id,p_command,result);
+  return result;
+end;
+$$;
+revoke all on function public.apply_island_entry_command(uuid,jsonb) from public,anon,authenticated;
+grant execute on function public.apply_island_entry_command(uuid,jsonb) to authenticated;
+
+
+-- Source: 20261003030000_background_notifications.sql
+-- Explicit opt-in device subscriptions and private generic-only delivery outbox.
+create table public.push_subscriptions (
+  id uuid primary key default gen_random_uuid(), house_id uuid not null references public.houses(id),
+  owner_id uuid not null, endpoint text not null unique,
+  p256dh text not null check(p256dh ~ '^[A-Za-z0-9_-]{87}$'),
+  auth_key text not null check(auth_key ~ '^[A-Za-z0-9_-]{22}$'),
+  active boolean not null default true, enabled_at timestamptz not null default clock_timestamp(),
+  foreign key(house_id,owner_id) references public.house_members(house_id,user_id),
+  check(length(endpoint)<=2048 and endpoint ~ '^https://(fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|web\.push\.apple\.com)(:443)?/[^[:space:]#]+$')
+);
+alter table public.push_subscriptions enable row level security;
+revoke all on public.push_subscriptions from public,anon,authenticated;
+grant select on public.push_subscriptions to authenticated;
+create policy push_subscriptions_owner_read on public.push_subscriptions for select to authenticated
+using(owner_id=auth.uid() and public.is_house_member(house_id));
+
+create table public.push_outbox (
+  id uuid primary key default gen_random_uuid(), subscription_id uuid not null references public.push_subscriptions(id),
+  house_id uuid not null references public.houses(id), recipient_id uuid not null,
+  kind text not null check(kind in ('knock','letter-delivered','game-turn')), source_id uuid not null,
+  source_version integer not null default 0, not_before timestamptz not null,
+  status text not null default 'pending' check(status in ('pending','sending','sent','suppressed','cancelled','failed','expired')),
+  attempts integer not null default 0 check(attempts between 0 and 4),
+  lease_token uuid, lease_until timestamptz, retry_at timestamptz not null default clock_timestamp(),
+  created_at timestamptz not null default clock_timestamp(),
+  foreign key(house_id,recipient_id) references public.house_members(house_id,user_id),
+  unique(subscription_id,kind,source_id,source_version)
+);
+alter table public.push_outbox enable row level security;
+revoke all on public.push_outbox from public,anon,authenticated;
+create index push_outbox_pending on public.push_outbox(status,retry_at,not_before);
+
+create function public.enroll_push_subscription(p_house_id uuid,p_endpoint text,p_p256dh text,p_auth text)
+returns uuid language plpgsql security definer set search_path='' as $$
+declare actor uuid:=auth.uid(); current_row public.push_subscriptions;
+begin
+  if actor is null then raise exception 'Authentication required' using errcode='28000'; end if;
+  if public.current_house_id() is distinct from p_house_id then raise exception 'House denied' using errcode='42501'; end if;
+  perform 1 from public.houses where id=p_house_id and state='active' for update;
+  if not found then raise exception 'House denied' using errcode='42501'; end if;
+  perform 1 from public.house_members where house_id=p_house_id and status='active' order by user_id for share;
+  if (select count(*) from public.house_members where house_id=p_house_id and status='active')<>2 then raise exception 'Paired House required' using errcode='42501'; end if;
+  if p_endpoint is null or length(p_endpoint)>2048 or p_endpoint !~ '^https://(fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|web\.push\.apple\.com)(:443)?/[^[:space:]#]+$'
+    or p_p256dh is null or p_p256dh !~ '^[A-Za-z0-9_-]{87}$' or p_auth is null or p_auth !~ '^[A-Za-z0-9_-]{22}$' then raise exception 'Invalid subscription'; end if;
+  perform pg_advisory_xact_lock(hashtextextended('push_endpoint:'||p_endpoint,0));
+  select * into current_row from public.push_subscriptions where endpoint=p_endpoint for update;
+  if found then
+    if current_row.owner_id<>actor or current_row.house_id<>p_house_id then raise exception 'Subscription owned by another account' using errcode='42501'; end if;
+    update public.push_subscriptions set p256dh=p_p256dh,auth_key=p_auth,active=true,enabled_at=clock_timestamp() where id=current_row.id;
+    update public.push_outbox set status='cancelled' where subscription_id=current_row.id and status in ('pending','sending');
+    return current_row.id;
+  end if;
+  if (select count(*) from public.push_subscriptions where owner_id=actor and active)>=8 then raise exception 'Device limit reached'; end if;
+  insert into public.push_subscriptions(house_id,owner_id,endpoint,p256dh,auth_key)
+    values(p_house_id,actor,p_endpoint,p_p256dh,p_auth) returning * into current_row;
+  return current_row.id;
+end;
+$$;
+create function public.disable_push_subscription(p_house_id uuid,p_id uuid)
+returns boolean language plpgsql security definer set search_path='' as $$
+begin
+  if auth.uid() is null or public.current_house_id() is distinct from p_house_id then raise exception 'House denied' using errcode='42501'; end if;
+  if not exists(select 1 from public.push_subscriptions where id=p_id and owner_id=auth.uid() and house_id=p_house_id) then raise exception 'Subscription denied' using errcode='42501'; end if;
+  update public.push_subscriptions set active=false where id=p_id;
+  update public.push_outbox set status='cancelled' where subscription_id=p_id and status in ('pending','sending');
+  return true;
+end;
+$$;
+revoke all on function public.enroll_push_subscription(uuid,text,text,text),public.disable_push_subscription(uuid,uuid) from public,anon;
+grant execute on function public.enroll_push_subscription(uuid,text,text,text),public.disable_push_subscription(uuid,uuid) to authenticated;
+
+create function public.enqueue_private_push(p_house uuid,p_recipient uuid,p_kind text,p_source uuid,p_version integer,p_due timestamptz)
+returns void language sql security definer set search_path='' as $$
+  insert into public.push_outbox(subscription_id,house_id,recipient_id,kind,source_id,source_version,not_before)
+  select s.id,p_house,p_recipient,p_kind,p_source,p_version,p_due from public.push_subscriptions s
+  where s.active and s.owner_id=p_recipient and s.house_id=p_house
+    and exists(select 1 from public.house_members m where m.house_id=p_house and m.user_id=p_recipient and m.status='active')
+  on conflict(subscription_id,kind,source_id,source_version) do nothing
+$$;
+create function public.enqueue_knock_push() returns trigger language plpgsql security definer set search_path='' as $$
+begin perform public.enqueue_private_push(new.house_id,new.recipient_id,'knock',new.id,0,new.created_at); return new; end; $$;
+create function public.enqueue_letter_push() returns trigger language plpgsql security definer set search_path='' as $$
+begin perform public.enqueue_private_push(new.house_id,new.recipient_id,'letter-delivered',new.id,0,new.deliver_at); return new; end; $$;
+create function public.enqueue_game_turn_push() returns trigger language plpgsql security definer set search_path='' as $$
+begin
+  if new.status='active' and (tg_op='UPDATE' or new.current_turn_user_id<>new.created_by) then
+    perform public.enqueue_private_push(new.house_id,new.current_turn_user_id,'game-turn',new.id,new.version,clock_timestamp());
+  end if;
+  return new;
+end; $$;
+create trigger knocks_push after insert on public.knocks for each row execute function public.enqueue_knock_push();
+create trigger letters_push after insert on public.letters for each row execute function public.enqueue_letter_push();
+create trigger game_turn_push after insert or update of version,current_turn_user_id,status on public.game_sessions for each row execute function public.enqueue_game_turn_push();
+revoke all on function public.enqueue_private_push(uuid,uuid,text,uuid,integer,timestamptz),public.enqueue_knock_push(),public.enqueue_letter_push(),public.enqueue_game_turn_push() from public,anon,authenticated;
+
+create function public.push_source_ready(o public.push_outbox)
+returns boolean language sql volatile security definer set search_path='' as $$
+  select case o.kind
+    when 'knock' then exists(select 1 from public.knocks k where k.id=o.source_id and k.house_id=o.house_id and k.recipient_id=o.recipient_id)
+    when 'letter-delivered' then exists(select 1 from public.letters l where l.id=o.source_id and l.house_id=o.house_id and l.recipient_id=o.recipient_id and l.deliver_at<=statement_timestamp())
+    when 'game-turn' then exists(select 1 from public.game_sessions g where g.id=o.source_id and g.house_id=o.house_id and g.status='active' and g.version=o.source_version and g.current_turn_user_id=o.recipient_id)
+    else false end
+$$;
+create function public.push_delivery_ready(p_id uuid,p_lease_token uuid)
+returns boolean language sql volatile security definer set search_path='' as $$
+  select exists(select 1 from public.push_outbox o join public.push_subscriptions s on s.id=o.subscription_id
+    join public.houses h on h.id=o.house_id and h.state='active'
+    where o.id=p_id and o.lease_token=p_lease_token and o.status='sending' and o.lease_until>statement_timestamp()
+      and s.active and s.house_id=o.house_id and s.owner_id=o.recipient_id and o.created_at>=s.enabled_at
+      and (select count(*) from public.house_members m where m.house_id=o.house_id and m.status='active')=2
+      and exists(select 1 from public.house_members m where m.house_id=o.house_id and m.user_id=o.recipient_id and m.status='active')
+      and o.not_before<=statement_timestamp() and public.push_source_ready(o))
+$$;
+create function public.claim_push_deliveries(p_limit integer default 8)
+returns setof jsonb language plpgsql security definer set search_path='' as $$
+declare o public.push_outbox; s public.push_subscriptions; prefs jsonb;
+begin
+  if p_limit is null or p_limit<1 or p_limit>8 then raise exception 'Invalid dispatch limit'; end if;
+  update public.push_outbox set status='expired' where status='pending' and not_before<clock_timestamp()-interval '24 hours';
+  update public.push_outbox set status='failed' where status='sending' and lease_until<=clock_timestamp() and attempts>=4;
+  for o in select * from public.push_outbox where (status='pending' or (status='sending' and lease_until<=clock_timestamp()))
+    and attempts<4 and retry_at<=clock_timestamp() and not_before<=clock_timestamp()
+    order by not_before,id limit p_limit for update skip locked loop
+    update public.push_outbox set status='sending',attempts=attempts+1,lease_token=gen_random_uuid(),lease_until=clock_timestamp()+interval '2 minutes' where id=o.id returning * into o;
+    if not public.push_delivery_ready(o.id,o.lease_token) then
+      update public.push_outbox set status='cancelled' where id=o.id; continue;
+    end if;
+    select * into s from public.push_subscriptions where id=o.subscription_id;
+    select to_jsonb(p) into prefs from public.notification_preferences p where p.user_id=o.recipient_id;
+    return next jsonb_build_object('outbox_id',o.id,'lease_token',o.lease_token,'device_token',s.id,'event_id',o.id,'kind',o.kind,
+      'subscription',jsonb_build_object('endpoint',s.endpoint,'keys',jsonb_build_object('p256dh',s.p256dh,'auth',s.auth_key)),
+      'preferences',prefs,'db_now',clock_timestamp());
+  end loop;
+end;
+$$;
+create function public.finish_push_delivery(p_id uuid,p_lease_token uuid,p_result text)
+returns boolean language plpgsql security definer set search_path='' as $$
+declare o public.push_outbox;
+begin
+  if p_result is null or p_result not in ('sent','suppressed','retry','expired') then raise exception 'Invalid outcome'; end if;
+  select * into o from public.push_outbox where id=p_id and lease_token=p_lease_token and status='sending' for update;
+  if not found then return false; end if;
+  if p_result='expired' then update public.push_subscriptions set active=false where id=o.subscription_id; end if;
+  update public.push_outbox set status=case when p_result='retry' then case when attempts>=4 then 'failed' else 'pending' end else p_result end,
+    retry_at=clock_timestamp()+interval '15 seconds'*power(2,attempts),lease_until=null where id=o.id;
+  return true;
+end;
+$$;
+revoke all on function public.push_source_ready(public.push_outbox),public.push_delivery_ready(uuid,uuid),public.claim_push_deliveries(integer),public.finish_push_delivery(uuid,uuid,text) from public,anon,authenticated;
+grant execute on function public.push_delivery_ready(uuid,uuid),public.claim_push_deliveries(integer),public.finish_push_delivery(uuid,uuid,text) to service_role;
+
+
+notify pgrst, 'reload schema';
+commit;

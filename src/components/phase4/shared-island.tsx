@@ -1,12 +1,13 @@
 "use client";
 import type { IslandView } from "@/modules/island/client";
+import type { ReactNode } from "react";
 import { MascotRabbit, MascotOwl } from "./mascots";
 const gameNames = { "doodle-relay": "Vẽ tiếp sức", "draw-guess": "Vẽ và đoán", "one-line-story": "Chuyện từng dòng", "photo-mission": "Nhiệm vụ ảnh" } as const;
 const gameIcons = { "doodle-relay": "🎨", "draw-guess": "✏️", "one-line-story": "📝", "photo-mission": "📷" } as const;
 const positions = [[22, 68], [77, 65], [40, 78], [75, 32], [22, 30], [57, 27]];
-type IslandProps = { view: IslandView | null; cached: boolean; busy: boolean; error: string | null; blocked?: boolean; onRefresh: () => void };
+type IslandProps = { view: IslandView | null; cached: boolean; busy: boolean; error: string | null; blocked?: boolean; onRefresh: () => void; children?: ReactNode };
 /** Renders trusted history. No control mutates world progress. */
-export function SharedIsland({ view, cached, busy, error, blocked = false, onRefresh }: IslandProps) {
+export function SharedIsland({ view, cached, busy, error, blocked = false, onRefresh, children }: IslandProps) {
   const artifacts = view?.artifacts ?? [];
   return (
     <main id="main-content" className="island-world relative min-h-dvh overflow-x-hidden pb-8" style={{ background: "linear-gradient(180deg, var(--scene-sky-start), var(--scene-sky-end) 40%, #7ab5c5 80%, #4a9ab5)" }}>
@@ -202,6 +203,10 @@ export function SharedIsland({ view, cached, busy, error, blocked = false, onRef
             <MascotOwl className="w-10 h-10 drop-shadow-md" />
           </div>
 
+          <a href="/house" aria-label="Nhà nhỏ: trở về Nhà" className="absolute min-h-11 rounded-xl bg-[var(--paper)]/95 px-3 py-2 text-sm font-bold text-[var(--forest)] shadow focus-visible:outline-2 focus-visible:outline-offset-4" style={{ left: "50%", top: "42%", transform: "translate(-50%, -50%)" }}>🏠 Về Nhà</a>
+          <a href="#island-journal" aria-label="Vườn nhỏ: mở sổ kỷ niệm" className="absolute min-h-11 rounded-xl bg-[var(--paper)]/95 px-3 py-2 text-sm font-bold text-[var(--forest)] shadow focus-visible:outline-2 focus-visible:outline-offset-4" style={{ left: "29%", top: "59%", transform: "translate(-50%, -50%)" }}>🌸 Kỷ niệm</a>
+          <a href="#island-milestones" aria-label="Vọng gác: mở cột mốc" className="absolute min-h-11 rounded-xl bg-[var(--paper)]/95 px-3 py-2 text-sm font-bold text-[var(--forest)] shadow focus-visible:outline-2 focus-visible:outline-offset-4" style={{ left: "77%", top: "44%", transform: "translate(-50%, -50%)" }}>⚜️ Cột mốc</a>
+
           {artifacts.slice(0, 6).map((artifact, index) => (
             <a key={artifact.id} href={`/games?session=${encodeURIComponent(artifact.id)}`}
               className="absolute flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[var(--paper)] text-2xl shadow focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--forest)]"
@@ -216,9 +221,9 @@ export function SharedIsland({ view, cached, busy, error, blocked = false, onRef
           <p className="mt-2 text-sm">🏠 Nhà nhỏ · chỗ trở về</p>
           <p className="mt-2 text-sm">🌸 Vườn · {view?.state.world.memories ? "có kỷ niệm đã xác nhận" : "trang trí"}</p>
           <p className="mt-2 text-sm">🔥 Lửa trại · trang trí, chưa mở</p>
-          <p className="mt-2 text-sm">⚜️ Cờ Hướng Đạo · trang trí</p>
+          <p className="mt-2 text-sm"><a href="#island-milestones" className="inline-flex min-h-11 items-center underline">⚜️ Vọng gác · cột mốc của hai đứa</a></p>
           <p className="mt-2 text-sm">⛵ Bến · {view?.state.world.missions ? "đã có tác phẩm nhiệm vụ ảnh" : "trang trí"}</p>
-          <p className="mt-3 text-sm">Kỷ niệm và cột mốc chỉ hiện khi có nguồn đã xác nhận. Tác phẩm trò chơi được giữ riêng.</p>
+          <p className="mt-3 text-sm">Kỷ niệm được lưu khi bạn xác nhận. Cột mốc giữ những ngày hai đứa chọn đánh dấu.</p>
         </div>
         <div className="rounded-2xl border border-[var(--forest)]/20 bg-[var(--paper)] p-4 text-[var(--forest)] shadow">
           <h2 className="text-xl font-bold [font-family:var(--font-display)]">Tác phẩm gần đây</h2>
@@ -233,6 +238,7 @@ export function SharedIsland({ view, cached, busy, error, blocked = false, onRef
           <p className="mt-3 text-sm">Đảo giữ lịch sử, không mất đi khi hai đứa nghỉ một thời gian.</p>
         </div>
       </section>
+      {children}
     </main>
   );
 }

@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { BackgroundNotificationConfiguration } from "@/modules/notifications/push-model";
 import type { HouseWithMembers } from "@/modules/houses/server";
 import { createPairingInviteAction } from "@/modules/houses/actions";
 import type { HomeState } from "@/modules/houses/state";
@@ -17,6 +19,7 @@ import { IdentitySetup } from "@/components/phase3/identity-setup";
 import { SyncCoordinator } from "@/components/phase3/sync-coordinator";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ThemeControl } from "@/components/theme-control";
+import { RememberOfflineContext } from "@/components/remember-offline-context";
 import "./home.css";
 
 function subscribeOnline(onChange: () => void) {
@@ -35,12 +38,17 @@ export function HouseDashboard({
   currentUserId,
   initialState,
   initialError = null,
+  verifiedAt,
+  backgroundNotifications,
 }: {
   house: HouseWithMembers;
   currentUserId: string;
   initialState: HomeState | null;
   initialError?: string | null;
+  verifiedAt?: string;
+  backgroundNotifications?: BackgroundNotificationConfiguration;
 }) {
+  const router = useRouter();
   const [state, setState] = useState<HomeState | null>(initialState);
   const [currentHouse, setCurrentHouse] = useState(house);
   const [loadError, setLoadError] = useState<string | null>(initialError);
@@ -56,6 +64,8 @@ export function HouseDashboard({
   const mutationInFlight = useRef(false);
   const online = useSyncExternalStore(subscribeOnline, readOnline, serverOnline);
   const isPaired = currentHouse.members.length === 2;
+  const recoveryHome = useMemo(() => state ? { house: currentHouse, state } : undefined, [currentHouse, state]);
+
 
   const invalidateRefresh = useCallback(() => {
     requestVersion.current += 1;
@@ -219,7 +229,10 @@ export function HouseDashboard({
   if (isPaired) {
     return (
       <>
-        <HomeRoom key={`${house.id}:${currentUserId}`} house={currentHouse} currentUserId={currentUserId} state={state} refresh={refresh} savePresence={savePresence} clearPresence={clearPresence} sendKnock={sendKnock} savePreferences={savePreferences} dismissKnock={dismissKnock} updateDisplayName={updateDisplayName} refreshing={refreshing} loadError={loadError} online={online} signOutControl={<SignOutButton userId={currentUserId} />} />
+        {verifiedAt && recoveryHome && <RememberOfflineContext accountId={currentUserId} houseId={house.id} verifiedAt={verifiedAt}
+          houseName={currentHouse.name} displayName={currentHouse.members.find(member => member.user_id === currentUserId)?.profile?.display_name ?? "Bạn"}
+          homeData={recoveryHome} />}
+        <HomeRoom key={`${house.id}:${currentUserId}`} house={currentHouse} currentUserId={currentUserId} state={state} refresh={refresh} savePresence={savePresence} clearPresence={clearPresence} sendKnock={sendKnock} savePreferences={savePreferences} dismissKnock={dismissKnock} updateDisplayName={updateDisplayName} refreshing={refreshing} loadError={loadError} online={online} signOutControl={<SignOutButton userId={currentUserId} />} onOpenBoard={() => router.push("/board")} backgroundNotifications={backgroundNotifications} />
         {state?.boardItems && !state.boardError && <SyncCoordinator accountId={currentUserId} houseId={currentHouse.id} />}
       </>
     );

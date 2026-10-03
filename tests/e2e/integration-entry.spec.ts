@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("new private rooms redirect unauthenticated visitors before returning any content", async ({ page }) => {
-  for (const room of ["/whiteboard", "/games", "/letters", "/island"]) {
+  for (const room of ["/board", "/whiteboard", "/games", "/letters", "/island"]) {
     await page.goto(room);
     await expect(page).toHaveURL(/\/auth\/sign-in$/);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();

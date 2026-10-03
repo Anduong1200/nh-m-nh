@@ -4,6 +4,7 @@ import { HouseDashboard } from "./house-dashboard";
 import { HouseUnavailable } from "./house-unavailable";
 import { requireVerifiedUser } from "@/modules/auth/server";
 import { loadHomeState, type HomeState } from "@/modules/houses/state";
+import { getBackgroundNotificationConfiguration } from "@/modules/notifications/push-server";
 
 export const metadata = {
   title: "Nhà Mình",
@@ -36,5 +37,5 @@ export default async function HousePage() {
     }
   }
 
-  return <HouseDashboard key={`${house.id}:${user.id}`} house={house} currentUserId={user.id} initialState={initialState} initialError={initialError} />;
+  return <HouseDashboard key={`${house.id}:${user.id}`} house={house} currentUserId={user.id} initialState={initialState} initialError={initialError} verifiedAt={new Date().toISOString()} backgroundNotifications={getBackgroundNotificationConfiguration()} />;
 }

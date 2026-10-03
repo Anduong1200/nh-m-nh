@@ -46,4 +46,8 @@ function Fixture() {
   /></>;
 }
 if (params.get("board-domain") === "1") window.boardDomainTest = createBoardDomainHarness();
-createRoot(document.getElementById("root")!).render(params.get("board-ui") === "1" ? <Board houseId={house.id} accountId={ids[actor]} initialItems={[]} onClose={() => history.back()} /> : params.get("board-domain") === "1" ? <BoardDomainFixture /> : <Fixture />);
+function BoardFixture() {
+  const [verified,setVerified]=useState(params.get("sync-paused") !== "1");
+  return <>{!verified && <button style={{position:"fixed",right:20,top:90,zIndex:1000005}} onClick={()=>setVerified(true)}>Xác nhận phiên kiểm thử</button>}<Board houseId={house.id} accountId={ids[actor]} initialItems={[]} syncEnabled={verified} onClose={() => history.back()} /></>;
+}
+createRoot(document.getElementById("root")!).render(params.get("board-ui") === "1" ? <BoardFixture /> : params.get("board-domain") === "1" ? <BoardDomainFixture /> : <Fixture />);

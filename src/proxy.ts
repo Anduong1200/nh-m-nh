@@ -14,6 +14,7 @@ export const config = {
     "/letters/:path*",
     "/island/:path*",
     "/whiteboard/:path*",
+    "/board/:path*",
     "/media/:path*",
   ],
 };

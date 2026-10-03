@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { HouseWithMembers } from "@/modules/houses/server";
 import { DEFAULT_NOTIFICATION_PREFERENCES } from "@/modules/notifications/model";
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 vi.mock("@/modules/houses/actions", () => ({}));
 vi.mock("@/modules/presence/actions", () => ({}));

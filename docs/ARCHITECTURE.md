@@ -137,3 +137,18 @@ anonymous policies on other buckets. See [ADR 003](ADR/003-private-photo-pipelin
 Codex reviews and integrates Gemini branches, then verifies the resulting tree.
 The required sequence and release gates are in [Integration ownership](INTEGRATION.md)
 and [V1 integration review](V1_INTEGRATION_REVIEW.md).
+
+## V1 completion integration
+
+The protected `/board` entry exposes real mixed content and versioned creator-only
+trash/restore. The Island journal persists confirmed memories and calendar-date
+milestones; its transactional producer appends ledger events without client-side
+progress increments. Private photo/PCM voice uploads validate bytes and require
+the server Secret key; no public media bucket is used.
+
+The public `/offline` recovery shell is separate from authenticated HTML. It
+opens only the most recently verified local namespace with an explicit gesture,
+preserves drafts and gates reconnect transport behind fresh identity validation.
+The background push outbox is opt-in and server-dispatched. See
+[ADR 004](ADR/004-cold-offline-and-background-delivery.md),
+[hosted setup](V1_HOSTED_SETUP.md) and [background notifications](BACKGROUND_NOTIFICATIONS.md).

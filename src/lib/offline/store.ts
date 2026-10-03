@@ -1,7 +1,8 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { notifyAccountInvalidation } from "./invalidation";
+import { disconnectLocalPush } from "./push-cleanup";
 
-export type OfflineContentKind = "note" | "doodle" | "whiteboard" | "game" | "letter" | "island";
+export type OfflineContentKind = "note" | "doodle" | "board" | "whiteboard" | "game" | "letter" | "island" | "home";
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 export interface OfflineDraft {
@@ -64,8 +65,13 @@ export interface RecentContent {
   cachedAt: string;
 }
 
+export type OfflineRecoveryContext = {
+  accountId: string; houseId: string; displayName: string; houseName: string;
+  verifiedAt: string; epoch: number;
+};
 interface OfflineSchema extends DBSchema {
-  epochs: { key: string; value: { accountId: string; epoch: number } };
+  epochs: { key: string; value: { accountId: string; epoch: number; clearedAt?: string } };
+  recovery: { key: string; value: OfflineRecoveryContext };
   drafts: { key: [string, string]; value: OfflineDraft; indexes: { "by-account": string } };
   operations: { key: [string, string]; value: QueuedOperation; indexes: { "by-account": string } };
   recent: { key: [string, string]; value: RecentContent; indexes: { "by-account": string } };
@@ -79,7 +85,7 @@ const cleanupInProgress = new Set<string>();
 let connection: Promise<IDBPDatabase<OfflineSchema>> | undefined;
 
 function database() {
-  connection ??= openDB<OfflineSchema>(DB_NAME, 3, {
+  connection ??= openDB<OfflineSchema>(DB_NAME, 4, {
     async upgrade(db, oldVersion, newVersion, tx) {
       if (oldVersion < 1) {
         for (const name of ["drafts", "operations", "recent"] as const) {
@@ -105,6 +111,7 @@ function database() {
         }
       }
       if (oldVersion < 3) db.createObjectStore("epochs", { keyPath: "accountId" });
+      if (oldVersion < 4) db.createObjectStore("recovery");
     },
     blocking() {
       // Let a later schema version upgrade safely; no content is deleted here.
@@ -179,6 +186,22 @@ export class AccountOfflineStore {
 
   /** Persistent generation barrier; it is not an authentication grant. */
   async assertCurrent() { await this.db(); }
+
+  /** A last verified local namespace, never an authentication grant or a token. */
+  async rememberRecoveryContext(input: Omit<OfflineRecoveryContext, "epoch">) {
+    if (input.accountId !== this.accountId || !validRecoveryInput(input)) throw new Error("Invalid recovery binding.");
+    const db = await this.db();
+    const tx = db.transaction(["epochs", "recovery"], "readwrite");
+    void tx.done.catch(() => {});
+    await this.assertEpoch(tx.objectStore("epochs"));
+    const generation = await tx.objectStore("epochs").get(this.accountId);
+    const current = await tx.objectStore("recovery").get("active");
+    // A late pre-logout page or older hydration cannot replace a newer namespace.
+    if ((!generation?.clearedAt || input.verifiedAt > generation.clearedAt) && (!current || input.verifiedAt > current.verifiedAt || (input.verifiedAt === current.verifiedAt && input.accountId === current.accountId && input.houseId === current.houseId))) {
+      await tx.objectStore("recovery").put({ ...input, epoch: generation?.epoch ?? 0 }, "active");
+    }
+    await tx.done;
+  }
 
   private assertActive() {
     if (this.cleared || cleanupInProgress.has(this.accountId)) {
@@ -401,13 +424,17 @@ export async function clearAccountOfflineData(accountId: string) {
   validateId(accountId, "Account ID");
   if (cleanupInProgress.has(accountId)) throw new Error("Account cleanup is already in progress.");
   cleanupInProgress.add(accountId);
+  try { await disconnectLocalPush(); }
+  catch (error) { cleanupInProgress.delete(accountId); throw error; }
   for (const handle of handles.get(accountId) ?? []) handle.close();
   handles.delete(accountId);
   try {
     const db = await database();
-    const tx = db.transaction(["drafts", "operations", "recent", "epochs"], "readwrite");
+    const tx = db.transaction(["drafts", "operations", "recent", "epochs", "recovery"], "readwrite");
     const generation = await tx.objectStore("epochs").get(accountId);
-    await tx.objectStore("epochs").put({ accountId, epoch: (generation?.epoch ?? 0) + 1 });
+    await tx.objectStore("epochs").put({ accountId, epoch: (generation?.epoch ?? 0) + 1, clearedAt: new Date().toISOString() });
+    const recovery = await tx.objectStore("recovery").get("active");
+    if (recovery?.accountId === accountId) await tx.objectStore("recovery").delete("active");
     for (const name of ["drafts", "operations", "recent"] as const) {
       const store = tx.objectStore(name);
       const keys = await store.index("by-account").getAllKeys(accountId);
@@ -418,4 +445,24 @@ export async function clearAccountOfflineData(accountId: string) {
     cleanupInProgress.delete(accountId);
     notifyAccountInvalidation(accountId);
   }
+}
+
+function validRecoveryInput(value: Omit<OfflineRecoveryContext, "epoch">) {
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuid.test(value.accountId) && uuid.test(value.houseId) && typeof value.displayName === "string" && value.displayName.length <= 100 &&
+    typeof value.houseName === "string" && value.houseName.length <= 100 && typeof value.verifiedAt === "string" &&
+    Number.isFinite(Date.parse(value.verifiedAt)) && new Date(value.verifiedAt).toISOString() === value.verifiedAt;
+}
+
+/** Only the latest verified namespace is offered; expired bindings stay stored. */
+export async function getOfflineRecoveryContext(now = Date.now()): Promise<OfflineRecoveryContext | null> {
+  const db = await database();
+  const tx = db.transaction(["recovery", "epochs"], "readonly");
+  const value = await tx.objectStore("recovery").get("active");
+  const epoch = value && validRecoveryInput(value) ? await tx.objectStore("epochs").get(value.accountId) : undefined;
+  await tx.done;
+  if (!value || !validRecoveryInput(value) || !Number.isSafeInteger(value.epoch) || value.epoch !== (epoch?.epoch ?? 0) ||
+      (epoch?.clearedAt && value.verifiedAt <= epoch.clearedAt)) return null;
+  const age = now - Date.parse(value.verifiedAt);
+  return age >= -5 * 60_000 && age <= RECENT_CONTENT_MAX_AGE_MS ? value : null;
 }

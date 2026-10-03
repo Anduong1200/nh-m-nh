@@ -1,8 +1,13 @@
 import { createServer, request } from "node:http";
 
 /** A stoppable real origin avoids WebKit's setOffline/service-worker emulation bug. */
-export async function temporaryOrigin(upstream: string) {
+export async function temporaryOrigin(upstream: string, responses = new Map<string, { status: number; body: unknown }>()) {
   const server = createServer((incoming, outgoing) => {
+    const response = responses.get(new URL(incoming.url ?? "/", upstream).pathname);
+    if (response) {
+      outgoing.writeHead(response.status, { "Content-Type": "application/json", "Cache-Control": "private, no-store" });
+      outgoing.end(JSON.stringify(response.body)); return;
+    }
     const forwarded = request(new URL(incoming.url ?? "/", upstream), {
       method: incoming.method ?? "GET",
       headers: incoming.headers,

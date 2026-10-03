@@ -7,6 +7,6 @@ export async function appendBoardObjectAction(input: BoardMutation["data"] & { i
   return apply({ id, operationId, expectedVersion: 0, mutation: "append", data }, context);
 }
 export async function updateBoardObjectAction(input: BoardMutation["data"] & { id: string; operationId: string; expectedVersion: number }, context: BoardContext) {
-  const { id, operationId, expectedVersion, ...data } = input;
-  return apply({ id, operationId, expectedVersion, mutation: "update", data }, context);
+  const { id, operationId, expectedVersion, deleted, ...data } = input;
+  return apply({ id, operationId, expectedVersion, mutation: deleted === true ? "trash" : deleted === false ? "restore" : "update", data }, context);
 }

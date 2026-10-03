@@ -10,7 +10,7 @@
   },
   "scripts": {
     "dev": "node scripts/prepare-whiteboard-assets.mjs && next dev",
-    "build": "node scripts/prepare-whiteboard-assets.mjs && next build",
+    "build": "node scripts/prepare-whiteboard-assets.mjs && next build && node scripts/prepare-offline-build.mjs",
     "build:e2e": "node scripts/build-e2e.mjs",
     "start": "next start",
     "lint": "eslint . --max-warnings 0",
@@ -31,7 +31,8 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "^0.0.1",
-    "sharp": "0.35.5"
+    "sharp": "0.35.5",
+    "web-push": "3.6.7"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
@@ -40,6 +41,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "3.6.4",
     "esbuild": "^0.28.2",
     "eslint": "^9.39.2",
     "eslint-config-next": "16.3.8",

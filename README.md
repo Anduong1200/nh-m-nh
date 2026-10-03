@@ -98,6 +98,18 @@ pnpm start
 
 The worker has scope `/` and displays a generic offline fallback; it does not cache private pages. Install on HTTPS or localhost. iOS uses Safari's Add to Home Screen; native installation and device background behavior require real-device verification. New worker versions offer an explicit refresh rather than interrupting a visit.
 
+`/offline` is a public recovery shell for account/House-scoped recent content and
+local note/doodle drafts. Open Home online once to prepare the verified namespace;
+choose **Mở bản đã lưu** to recover it. Reconnect verifies identity before sync.
+No authenticated HTML, API response or private media is cached by the worker.
+Use a production build to test closed-app offline recovery.
+
+For an existing Phase 2 Supabase project, see [V1 hosted setup](docs/V1_HOSTED_SETUP.md)
+and the guarded `supabase/upgrade-phase2-to-v1.sql`. Photo/voice uploads need the
+server Secret key; optional background push also needs VAPID and a scheduler.
+See [private media](docs/PRIVATE_MEDIA.md), [notifications](docs/BACKGROUND_NOTIFICATIONS.md)
+and [current completion status](docs/COMPLETION_STATUS.md) for remaining acceptance gates.
+
 ## Verification
 
 ```sh

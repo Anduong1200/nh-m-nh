@@ -29,6 +29,7 @@ const nextConfig: NextConfig = {
           { key: "Service-Worker-Allowed", value: "/" },
         ],
       },
+      { source: "/offline-build.js", headers: [{ key: "Cache-Control", value: "no-store, max-age=0" }] },
     ];
   },
 };
