@@ -70,7 +70,7 @@ See `PRODUCT_SPEC.md`, `AGENTS.md`, and `docs/`.
 
 The reviewed integration includes private House/pairing, Home with rabbit/owl identities, Presence/Knock, Board, Excalidraw Whiteboard, the four async games, Letters and a source-derived Island. Home links to protected `/whiteboard`, `/games`, `/letters` and `/island` routes. Games preserve turn artifacts and conflict drafts; Letters respects scheduled/sealed actor projections and requires both partners online in the same explicit joint reveal session. No demo memories or client-controlled Island progression are used.
 
-Codex owns integration of Gemini branches and the final gates: [integration process](docs/INTEGRATION.md). [V1 integration review](docs/V1_INTEGRATION_REVIEW.md) records findings and verification; [completion status](docs/COMPLETION_STATUS.md) distinguishes remaining code from hosted/device acceptance. Board currently creates notes/stickers; link/photo/audio/doodle creation and media rendering are incomplete. Cold offline private recovery and confirmed Memory/Milestone producers also remain incomplete. The user's earlier two-account auth/House trial passed; this does not prove the new hosted Games/Letters/Storage flows. Database installation and real-device acceptance are still required. The current Island preserves game-derived evidence and recent artifacts, so the whole product is not yet production complete.
+Codex owns integration of Gemini branches and the final gates: [integration process](docs/INTEGRATION.md). [V1 integration review](docs/V1_INTEGRATION_REVIEW.md) records the earlier review; [completion status](docs/COMPLETION_STATUS.md) records the current implementation and remaining hosted/device acceptance. Board supports notes/stickers, links, private photos/voice and doodles. Cold offline recovery and confirmed Island memories/milestones are integrated. The user's two-account auth/House trial passed; hosted media, background delivery and installed physical-PWA acceptance still need verification before a production release.
 
 The photo pipeline uses a server-only `SUPABASE_SECRET_KEY`, private Storage and normalized pixels: [ADR 003](docs/ADR/003-private-photo-pipeline.md). Empty/missing media configuration keeps upload closed without disabling the other games. Never put this secret in a `NEXT_PUBLIC_*` variable. Read the [migration guide](supabase/migrations/README.md) before applying additive installers to an existing project; repository publishing does not apply migrations or deploy the app.
 
@@ -80,7 +80,7 @@ Historical reports: [Bootstrap](docs/BOOTSTRAP.md), [Phase 2](docs/PHASE2.md), [
 
 Games production routes use the [domain contracts](docs/GAMES_DOMAIN.md); hosted schema installation and real-account acceptance remain deployment steps.
 
-Use Node.js 22.12+ on the 22 LTS line (or Node 24 LTS) and pnpm 11.25.0. Install pnpm with Corepack where available (`corepack enable`, then `corepack prepare pnpm@11.25.0 --activate`) or the official pnpm installer.
+Use Node.js 22.13+ on the 22 LTS line (or Node 24 LTS) and pnpm 11.25.0. Node 22.12 cannot run the pinned pnpm version. Install pnpm with Corepack where available (`corepack enable`, then `corepack prepare pnpm@11.25.0 --activate`) or the official pnpm installer. See [Windows setup and PWA](docs/WINDOWS_PWA_SETUP.md) if PowerShell cannot find `pnpm`.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -96,7 +96,7 @@ pnpm build
 pnpm start
 ```
 
-The worker has scope `/` and displays a generic offline fallback; it does not cache private pages. Install on HTTPS or localhost. iOS uses Safari's Add to Home Screen; native installation and device background behavior require real-device verification. New worker versions offer an explicit refresh rather than interrupting a visit.
+The worker has scope `/` and displays the public offline recovery shell; it does not cache authenticated HTML or API responses. Install on HTTPS or localhost. Use HTTPS for authenticated production acceptance, particularly on WebKit where Secure cookies do not work in an HTTP preview. iOS uses Safari's Add to Home Screen; native installation and device background behavior require real-device verification. New worker versions offer an explicit refresh rather than interrupting a visit. See [Vercel deployment](docs/DEPLOYMENT.md) to prepare a stable HTTPS origin for both phones.
 
 `/offline` is a public recovery shell for account/House-scoped recent content and
 local note/doodle drafts. Open Home online once to prepare the verified namespace;
