@@ -2,6 +2,7 @@
 import type { IslandView } from "@/modules/island/client";
 import type { ReactNode } from "react";
 import { MascotRabbit, MascotOwl } from "./mascots";
+import "./island.css";
 const gameNames = { "doodle-relay": "Vẽ tiếp sức", "draw-guess": "Vẽ và đoán", "one-line-story": "Chuyện từng dòng", "photo-mission": "Nhiệm vụ ảnh" } as const;
 const gameIcons = { "doodle-relay": "🎨", "draw-guess": "✏️", "one-line-story": "📝", "photo-mission": "📷" } as const;
 const positions = [[22, 68], [77, 65], [40, 78], [75, 32], [22, 30], [57, 27]];
@@ -23,8 +24,8 @@ export function SharedIsland({ view, cached, busy, error, blocked = false, onRef
         {cached && <p className="rounded-xl bg-[var(--paper)] p-2 text-sm text-[var(--forest)]">Đang xem bản đã lưu trên thiết bị. Đảo sẽ làm mới khi có kết nối.</p>}
         {error && <p role="alert" className="mt-2 rounded-xl bg-[var(--paper)] p-3 text-[var(--forest)]">{error} {blocked && <a href="/house" className="underline">Về Nhà để xác nhận phiên.</a>}</p>}
       </div>
-      <div className="relative mx-auto flex max-w-5xl items-center justify-center py-2" style={{ touchAction: "manipulation" }}>
-        <div className="relative w-[90vw] max-w-[900px] aspect-[4/3]">
+      <div className="island-map relative mx-auto flex max-w-5xl items-center justify-center py-2" style={{ touchAction: "manipulation" }}>
+        <div className="relative w-[90vw] max-w-[700px] aspect-[4/3] -mt-8 sm:-mt-16">
           {/* Island landmass SVG */}
           <svg className="absolute inset-0 w-full h-full" viewBox="0 0 900 675" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
             <defs>
@@ -203,9 +204,11 @@ export function SharedIsland({ view, cached, busy, error, blocked = false, onRef
             <MascotOwl className="w-10 h-10 drop-shadow-md" />
           </div>
 
-          <a href="/house" aria-label="Nhà nhỏ: trở về Nhà" className="absolute min-h-11 rounded-xl bg-[var(--paper)]/95 px-3 py-2 text-sm font-bold text-[var(--forest)] shadow focus-visible:outline-2 focus-visible:outline-offset-4" style={{ left: "50%", top: "42%", transform: "translate(-50%, -50%)" }}>🏠 Về Nhà</a>
-          <a href="#island-journal" aria-label="Vườn nhỏ: mở sổ kỷ niệm" className="absolute min-h-11 rounded-xl bg-[var(--paper)]/95 px-3 py-2 text-sm font-bold text-[var(--forest)] shadow focus-visible:outline-2 focus-visible:outline-offset-4" style={{ left: "29%", top: "59%", transform: "translate(-50%, -50%)" }}>🌸 Kỷ niệm</a>
-          <a href="#island-milestones" aria-label="Vọng gác: mở cột mốc" className="absolute min-h-11 rounded-xl bg-[var(--paper)]/95 px-3 py-2 text-sm font-bold text-[var(--forest)] shadow focus-visible:outline-2 focus-visible:outline-offset-4" style={{ left: "77%", top: "44%", transform: "translate(-50%, -50%)" }}>⚜️ Cột mốc</a>
+          <nav className="island-places" aria-label="Các góc trên Đảo">
+          <a href="/house" aria-label="Nhà nhỏ: trở về Nhà" className="island-place-link" style={{ left: "50%", top: "42%" }}>🏠 Về Nhà</a>
+          <a href="#island-journal" aria-label="Vườn nhỏ: mở sổ kỷ niệm" className="island-place-link" style={{ left: "29%", top: "59%" }}>🌸 Kỷ niệm</a>
+          <a href="#island-milestones" aria-label="Vọng gác: mở cột mốc" className="island-place-link" style={{ left: "77%", top: "44%" }}>⚜️ Cột mốc</a>
+          </nav>
 
           {artifacts.slice(0, 6).map((artifact, index) => (
             <a key={artifact.id} href={`/games?session=${encodeURIComponent(artifact.id)}`}
@@ -215,15 +218,18 @@ export function SharedIsland({ view, cached, busy, error, blocked = false, onRef
           ))}
         </div>
       </div>
-      <section className="relative z-10 mx-auto grid max-w-4xl gap-4 px-4 sm:grid-cols-[1fr_2fr]" aria-label="Dấu vết trên Đảo">
+      {children}
+      <section className="relative z-10 mx-auto mt-5 grid max-w-4xl gap-4 px-4 sm:grid-cols-[1fr_2fr]" aria-label="Dấu vết trên Đảo">
         <div className="rounded-2xl border border-[var(--forest)]/20 bg-[var(--paper)] p-4 text-[var(--forest)] shadow">
-          <h2 className="font-bold [font-family:var(--font-display)]">Bản đồ nhỏ</h2>
-          <p className="mt-2 text-sm">🏠 Nhà nhỏ · chỗ trở về</p>
           <p className="mt-2 text-sm">🌸 Vườn · {view?.state.world.memories ? "có kỷ niệm đã xác nhận" : "trang trí"}</p>
           <p className="mt-2 text-sm">🔥 Lửa trại · trang trí, chưa mở</p>
+          <details><summary className="min-h-11 cursor-pointer py-2 font-bold [font-family:var(--font-display)]">Đọc bản đồ nhỏ</summary>
+          <p className="mt-2 text-sm">🏠 Nhà nhỏ · chỗ trở về</p>
+
+
           <p className="mt-2 text-sm"><a href="#island-milestones" className="inline-flex min-h-11 items-center underline">⚜️ Vọng gác · cột mốc của hai đứa</a></p>
           <p className="mt-2 text-sm">⛵ Bến · {view?.state.world.missions ? "đã có tác phẩm nhiệm vụ ảnh" : "trang trí"}</p>
-          <p className="mt-3 text-sm">Kỷ niệm được lưu khi bạn xác nhận. Cột mốc giữ những ngày hai đứa chọn đánh dấu.</p>
+          <p className="mt-3 text-sm">Kỷ niệm được lưu khi bạn xác nhận. Cột mốc giữ những ngày hai đứa chọn đánh dấu.</p></details>
         </div>
         <div className="rounded-2xl border border-[var(--forest)]/20 bg-[var(--paper)] p-4 text-[var(--forest)] shadow">
           <h2 className="text-xl font-bold [font-family:var(--font-display)]">Tác phẩm gần đây</h2>
@@ -238,7 +244,7 @@ export function SharedIsland({ view, cached, busy, error, blocked = false, onRef
           <p className="mt-3 text-sm">Đảo giữ lịch sử, không mất đi khi hai đứa nghỉ một thời gian.</p>
         </div>
       </section>
-      {children}
+
     </main>
   );
 }

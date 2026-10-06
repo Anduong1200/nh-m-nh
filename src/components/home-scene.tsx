@@ -1,4 +1,4 @@
-export function HomeScene() {
+export function HomeScene({ interactive = false }: { interactive?: boolean } = {}) {
   return (
     <svg
       viewBox="0 0 700 500"
@@ -10,7 +10,7 @@ export function HomeScene() {
       <desc id="home-scene-description">
         Căn phòng ấm áp với hai chiếc cốc trên bàn, khung cửa sổ, bảng trống,
         hộp trò chơi đóng, lá thư minh họa, cây xanh, thỏ và cú.
-        Các đồ vật chỉ là trang trí trong bản khởi tạo.
+        {interactive ? "Chọn đồ vật để ghé những góc riêng của hai đứa." : "Các đồ vật chỉ là trang trí trong bản khởi tạo."}
       </desc>
       <defs>
         <pattern id="wall-paper" width="22" height="22" patternUnits="userSpaceOnUse">
@@ -64,6 +64,7 @@ export function HomeScene() {
         <path d="m514 152 9-8 17 12 12-9 17-5" className="scene-map-path" />
       </g>
       <g className="scene-owl" data-mascot="owl">
+        <g data-mascot-artwork>
         <path d="M533 174l10 8q12-7 24 0l10-8-3 28q-2 12-19 12t-19-12Z" className="scene-owl-body" />
         <circle cx="546" cy="189" r="9" className="scene-cream" />
         <circle cx="565" cy="189" r="9" className="scene-cream" />
@@ -71,6 +72,7 @@ export function HomeScene() {
         <circle cx="564" cy="189" r="2" className="scene-eye" />
         <path d="m551 197 5 5 4-5Z" className="scene-beak" />
         <path d="m539 199 5 7m25-7-5 7m-18 8v2m17-2v2" className="scene-mascot-detail" />
+        </g>
       </g>
 
       {/* Plant and lamp. */}
@@ -112,6 +114,7 @@ export function HomeScene() {
         <path d="m127 387 8-10 7 10 12-2-5 11-21 1Z" className="scene-game-symbol" />
       </g>
       <g className="scene-rabbit" data-mascot="rabbit">
+        <g data-mascot-artwork>
         <circle cx="580" cy="395" r="9" className="scene-cream" />
         <ellipse cx="556" cy="391" rx="24" ry="25" className="scene-cream" />
         <ellipse cx="544" cy="346" rx="7" ry="25" transform="rotate(-15 544 346)" className="scene-cream" />
@@ -124,6 +127,7 @@ export function HomeScene() {
         <path d="M553 382v3m-5 0q5 4 10 0M547 396v9m14-9v9" className="scene-mascot-detail" />
         <ellipse cx="543" cy="413" rx="10" ry="4" className="scene-cream" />
         <ellipse cx="567" cy="413" rx="10" ry="4" className="scene-cream" />
+        </g>
       </g>
 
       <path d="m55 83-12 4m2-25 7 8m596 9 12 4m-4-20-7 8" className="scene-spark" />

@@ -58,3 +58,9 @@ it("does not mount a cached Island screen after explicit authorization denial", 
   mocks.read.mockResolvedValue({ blocked: true });
   expect((await IslandPage()).type).toBe("main");
 });
+it("mounts the verified map with an explicit warning if only the game list is unavailable", async () => {
+  mocks.list.mockRejectedValue(new Error("network"));
+  expect((await IslandPage()).props).toMatchObject({ initialView: { artifacts: [], state: { version: 0 } }, initialError: expect.stringContaining("Bản đồ và sổ") });
+  mocks.list.mockResolvedValue({ blocked: true, error: "denied" });
+  expect((await IslandPage()).type).toBe("main");
+});

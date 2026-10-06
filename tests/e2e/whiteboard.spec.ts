@@ -2,6 +2,25 @@ import { randomUUID } from "node:crypto";
 import { expect,test, type Page } from "@playwright/test";
 import type {} from "../ui-fixture/whiteboard-entry";
 const url=(session:string,actor=0)=>"http://127.0.0.1:3103/?whiteboard=1&session="+session+"&actor="+actor;
+test("chosen pen color and width survive saving and reopening",async({page})=>{
+  test.setTimeout(60000);
+  const target=url(randomUUID());
+  await page.goto(target);
+  await expect(page.getByRole("button",{name:"Bút",exact:true})).toBeEnabled({timeout:20000});
+  await page.getByRole("button",{name:"Màu Biển",exact:true}).click();
+  await page.getByRole("slider",{name:"Độ dày nét bút"}).fill("5");
+  await draw(page);
+  await expect(page.getByRole("button",{name:"Bút",exact:true})).toHaveAttribute("aria-pressed","true");
+  await page.getByRole("button",{name:"Lưu vào Nhà",exact:true}).click();
+  await expect.poll(()=>page.evaluate(async()=>(await window.whiteboardTest.remote()).version)).toBe(1);
+  const saved=await page.evaluate(()=>window.whiteboardTest.remote());
+  expect(saved.scene.elements.some(element=>element.type==="freedraw"&&element.strokeWidth===5&&element.strokeColor==="#387b98")).toBe(true);
+  await page.reload();
+  await expect(page.getByRole("button",{name:"Bút",exact:true})).toBeEnabled({timeout:20000});
+  expect((await page.evaluate(()=>window.whiteboardTest.remote())).scene).toEqual(saved.scene);
+  await page.getByRole("button",{name:"Giấy nhớ",exact:true}).click();
+  await expect(page.getByRole("button",{name:"Di chuyển / xoay",exact:true})).toHaveAttribute("aria-pressed","true");
+});
 async function draw(page:Page) {
   await expect(page.getByRole("button",{name:"Bút",exact:true})).toBeEnabled({timeout:20000});
   const touch=await page.evaluate(()=>navigator.maxTouchPoints>0);

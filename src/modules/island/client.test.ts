@@ -83,3 +83,18 @@ it("logout rejects a late response and cannot restore deleted cache", async () =
   await expect(pending).rejects.toThrow();
   expect(await new AccountOfflineStore(context.accountId).listRecent()).toEqual([]);
 });
+
+it("keeps the authorized map available when the optional game list fails", async () => {
+  const { client, transport, view } = setup();
+  vi.mocked(transport.list).mockResolvedValue({ error: "Temporary list failure" });
+  expect(await client.refresh()).toMatchObject({ cached: false, view: { state: view.state, artifacts: [] }, error: expect.stringContaining("Bản đồ và sổ") });
+  vi.mocked(transport.list).mockRejectedValue(new Error("network"));
+  expect((await client.refresh()).view?.state).toEqual(view.state);
+});
+it("never treats game authorization denial or foreign artifacts as an optional list failure", async () => {
+  const { client, transport } = setup();
+  vi.mocked(transport.list).mockResolvedValue({ context, sessions: [{ ...completed(), houseId: crypto.randomUUID() }] });
+  expect((await client.refresh()).view).toBeUndefined();
+  vi.mocked(transport.list).mockResolvedValue({ blocked: true, error: "denied" });
+  expect(await client.refresh()).toMatchObject({ blocked: true });
+});

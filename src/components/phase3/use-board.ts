@@ -98,10 +98,10 @@ export function useBoard(accountId: string, houseId: string, initialItems: Board
     void s.serial.catch(() => {});
   };
   const change = (item: BoardItem) => { if (!ready || blocked || state.current?.saving.has(item.id)) return; setItems(prev => prev.map(i => i.id === item.id ? item : i)); persist(item); };
-  const create = (type: BoardType, payload: Record<string,unknown>, mediaId: string | null = null) => {
+  const create = (type: BoardType, payload: Record<string,unknown>, mediaId: string | null = null, position?: { x: number; y: number }) => {
     if (!ready || blocked || !state.current?.active) return null;
     const now = new Date().toISOString();
-    const item: BoardItem = { id: crypto.randomUUID(), houseId, createdBy: accountId, type, payload, mediaId, x: Math.max(24, Math.min(160, innerWidth - 244)), y: 160, rotation: 0, zIndex: Math.min(1000000, Math.max(0, ...items.map(i => i.zIndex)) + 1), version: 0, createdAt: now, updatedAt: now, deletedAt: null };
+    const item: BoardItem = { id: crypto.randomUUID(), houseId, createdBy: accountId, type, payload, mediaId, x: position?.x ?? Math.max(0, Math.min(160, innerWidth - 340)), y: position?.y ?? 40, rotation: 0, zIndex: Math.min(1000000, Math.max(0, ...items.map(i => i.zIndex)) + 1), version: 0, createdAt: now, updatedAt: now, deletedAt: null };
     if (!parseBoardItemInput({ operationId: crypto.randomUUID(), id: item.id, type, ...data(item) }).value) { setMessage("Nội dung chưa hợp lệ. Kiểm tra lại trước khi ghim."); return null; }
     setItems(prev => [...prev,item]); persist(item); return item;
   };

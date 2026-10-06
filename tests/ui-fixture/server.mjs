@@ -16,7 +16,7 @@ const { handleLetterFixture } = await import(pathToFileURL(join(process.cwd(), "
 const letterBrowserBundle = await build({ entryPoints: ["tests/ui-fixture/letter-entry.ts"], bundle: true, write: false, format: "esm", platform: "browser", target: "es2022" });
 
 const lettersUiBundle = await build({ entryPoints: ["tests/ui-fixture/letters-ui-entry.tsx"], bundle: true, write: false, format: "esm", platform: "browser", target: "es2022", jsx: "automatic", define: { "process.env.NODE_ENV": '"production"' }, alias: { "next/navigation": "./tests/ui-fixture/games-ui-navigation.ts", "@/modules/letters/actions": "./tests/ui-fixture/letters-ui-actions.ts" } });
-const islandUiBundle = await build({ entryPoints: ["tests/ui-fixture/island-entry.tsx"], bundle: true, write: false, format: "esm", platform: "browser", target: "es2022", jsx: "automatic", define: { "process.env.NODE_ENV": '"production"' }, alias: { "@/modules/island/actions": "./tests/ui-fixture/island-actions.ts", "@/modules/island/journal-actions": "./tests/ui-fixture/island-actions.ts", "@/modules/games/actions": "./tests/ui-fixture/island-actions.ts" } });
+const islandUiBundle = await build({ entryPoints: ["tests/ui-fixture/island-entry.tsx"], outfile: ".pnpm-cache/island-fixture.js", bundle: true, write: false, format: "esm", platform: "browser", target: "es2022", jsx: "automatic", define: { "process.env.NODE_ENV": '"production"' }, alias: { "@/modules/island/actions": "./tests/ui-fixture/island-actions.ts", "@/modules/island/journal-actions": "./tests/ui-fixture/island-actions.ts", "@/modules/games/actions": "./tests/ui-fixture/island-actions.ts" } });
 const gamesUiBundle = await build({ entryPoints: ["tests/ui-fixture/games-ui-entry.tsx"], bundle: true, write: false, minify: true, splitting: true, outdir: ".pnpm-cache/games-ui-fixture", format: "esm", platform: "browser", target: "es2022", jsx: "automatic", conditions: ["production"], loader: { ".woff2": "file" }, define: { "process.env.NODE_ENV": '"production"', "process.env.IS_PREACT": "false" }, alias: { "next/navigation": "./tests/ui-fixture/games-ui-navigation.ts", "@/modules/games/actions": "./tests/ui-fixture/games-ui-actions.ts", "@/modules/media/actions": "./tests/ui-fixture/games-ui-media-actions.ts" } });
 const gamesUiFiles = new Map(gamesUiBundle.outputFiles.map(f => [f.path.split(/[\\/]/).at(-1), f]));
 
@@ -62,6 +62,9 @@ const server = createServer(async (request, response) => {
     if(!file){response.writeHead(404);response.end();return;}
     response.writeHead(200,{"Content-Type":name.endsWith(".css")?"text/css":name.endsWith(".woff2")?"font/woff2":"text/javascript"});response.end(file.contents);return;
   }
+  if (url.pathname === "/island-fixture.css") {
+    response.writeHead(200, { "Content-Type": "text/css" }); response.end(islandUiBundle.outputFiles.find(file => file.path.endsWith(".css"))?.text ?? ""); return;
+  }
   if (url.pathname === "/letters-ui-bundle.js" || url.pathname === "/island-bundle.js") {
     response.writeHead(200, { "Content-Type": "text/javascript" }); response.end((url.pathname === "/island-bundle.js" ? islandUiBundle : lettersUiBundle).outputFiles[0].text); return;
   }
@@ -73,7 +76,7 @@ const server = createServer(async (request, response) => {
   const screen = url.searchParams.get("letters-ui") === "1" ? "letters" : url.searchParams.get("games-ui") === "1" ? "games" : url.searchParams.get("island") === "1" ? "island" : null;
   if (screen) {
     const script = screen === "games" ? "/games-ui-fixture/games-ui-entry.js" : screen === "letters" ? "/letters-ui-bundle.js" : "/island-bundle.js";
-    response.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-store" }); response.end(`<!doctype html><html lang="vi" class="${fontClass}" data-theme="day"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nhà Mình · ${screen} integration fixture</title><link rel="stylesheet" href="/styles.css">${screen === "games" ? '<link rel="stylesheet" href="/games-ui-fixture/games-ui-entry.css">' : ""}</head><body><div id="root"></div><script type="module" src="${script}"></script></body></html>`); return;
+    response.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-store" }); response.end(`<!doctype html><html lang="vi" class="${fontClass}" data-theme="day"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nhà Mình · ${screen} integration fixture</title><link rel="stylesheet" href="/styles.css">${screen === "island" ? '<link rel="stylesheet" href="/island-fixture.css">' : ""}${screen === "games" ? '<link rel="stylesheet" href="/games-ui-fixture/games-ui-entry.css">' : ""}</head><body><div id="root"></div><script type="module" src="${script}"></script></body></html>`); return;
   }
   if (await handleLetterFixture(request, response, url)) return;
   if (url.pathname === "/letter-bundle.js") { response.writeHead(200, { "Content-Type": "text/javascript" }); response.end(letterBrowserBundle.outputFiles[0].text); return; }

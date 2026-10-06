@@ -1,5 +1,26 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
+test("negative board positions remain reachable after reopening and never sit behind the header",async({page})=>{
+  const session=randomUUID();
+  await page.goto("http://127.0.0.1:3103/?board-ui=1&session="+session);
+  const add=page.getByRole("button",{name:"+ Thêm ghi chú",exact:true});
+  await expect(add).toBeEnabled();await add.click();
+  await page.getByRole("textbox",{name:"Nội dung ghi chú"}).fill("Không mất ngoài mép bảng");
+  const handle=page.getByRole("button",{name:"Di chuyển ghi chú",exact:true});
+  for(let index=0;index<22;index++)await handle.press("ArrowLeft");
+  for(let index=0;index<8;index++)await handle.press("ArrowUp");
+  await page.getByRole("button",{name:"Lưu ghi chú",exact:true}).click();
+  await expect(page.getByRole("textbox",{name:"Nội dung ghi chú"})).toBeEnabled();
+  const snapshot=await page.request.get("http://127.0.0.1:3103/api/board/snapshot?session="+session+"&actor=0");
+  const saved=await snapshot.json();expect(saved.items[0].x).toBeLessThan(0);expect(saved.items[0].y).toBeLessThan(0);
+  await page.reload();await expect(handle).toBeEnabled();
+  const card=await page.locator("[data-board-item]").boundingBox(),header=await page.locator(".board-status").boundingBox();
+  expect(card&&header&&card.y>=header.y+header.height).toBe(true);
+  await expect(page.getByRole("textbox",{name:"Nội dung ghi chú"})).toHaveValue("Không mất ngoài mép bảng");
+  await add.click();
+  const created=await page.locator("[data-board-item]").last().boundingBox(),viewport=await page.locator(".board-scroll").boundingBox();
+  expect(created&&viewport&&created.x>=viewport.x&&created.x+created.width<=viewport.x+viewport.width&&created.y>=viewport.y&&created.y<viewport.y+viewport.height-44).toBe(true);
+});
 test("Board UI saves, reopens and reconnects a note using the versioned domain", async ({ page, context }) => {
   const url = "http://127.0.0.1:3103/?board-ui=1&session=" + randomUUID();
   await page.goto(url);

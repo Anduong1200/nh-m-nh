@@ -5,7 +5,48 @@ phục hồi offline từ lúc mở app và core thông báo nền. Giữ nguyê
 đã được người dùng chốt. Code đã qua các gates bên dưới; **chưa chốt phát hành
 production** khi hosted schema/config và thiết bị thật còn cần xác nhận.
 
-## Những khoảng trống đã xử lý
+## Đợt sửa trải nghiệm V1 — 2026-10-06
+
+Đánh giá hiện tại: **beta nội bộ, chưa chốt phát hành**. Báo cáo người dùng về
+lỗi Bảng/Đảo trên dữ liệu thật chưa được tái hiện trong phiên Supabase của họ.
+Xem [đánh giá chi tiết](V1_POLISH_REVIEW.md).
+
+- Home chuyển từ panel rời sang căn phòng minh họa với đồ vật điều hướng,
+  thỏ/cú rõ ràng, sổ trạng thái và gõ cửa; `/home` trỏ tới House có kiểm tra auth.
+- Bảng tách header/canvas/tools; tọa độ âm vẫn tiếp cận được, giữ origin khi kéo,
+  đặt vật dụng mới trong vùng đang xem; không sửa tọa độ cũ hay nới quyền.
+- Whiteboard có sáu màu, độ dày nét và trạng thái công cụ đồng bộ với editor;
+  màu/độ dày được kiểm tra qua lưu/mở lại tài liệu thật.
+- Bốn game có bìa minh họa riêng; chọn màn đưa focus/scroll đến phần đang chơi.
+- Đảo giữ bản đồ đã xác thực khi chỉ lịch sử game lỗi, báo rõ tải một phần;
+  auth denial/đổi House/dữ liệu không hợp lệ vẫn đóng. Sổ và thao tác thêm ở trước
+  chú giải; nút điều hướng mobile không che mascot.
+
+Kiểm tra bản sửa:
+
+- lint và typecheck pass; unit/integration **674 tests / 78 files**, pass.
+- `pnpm build:e2e` và `pnpm build` pass; build cuối dùng cấu hình thật trong file
+  môi trường ignored, không đưa secret vào Git.
+- Full E2E **216 pass** trên desktop Chromium, iPhone 12 WebKit và Android
+  Chromium. Sau hai chỉnh sửa cuối ở Board/tool selection, chạy lại **18 ca liên
+  quan**, đều pass với production build cuối. Cả hai runner exit 0.
+- Windows kẹt bước kết thúc worker sau khi 72 ca iPhone đã pass; worker không
+  còn trình duyệt con được dọn để runner tiếp tục Android. Sau tất cả assertions,
+  chỉ server test 3100/3103 được dọn để runner thoát. Không bỏ hoặc tắt test.
+- Đã xem screenshot desktop/iPhone; kiểm tra mobile Home/Đảo không chồng nút lên
+  mascot/chú thích/navigation và không tràn ngang. Browser fixtures có transport
+  mô phỏng, không phải nghiệm thu Supabase thật.
+- `supabase/diagnose-v1.sql` chỉ đọc metadata bảng/cột/RPC/RLS/quyền. Đã thử trên
+  PostgreSQL/PGlite đã áp toàn bộ migrations: năm result sets, không đọc nội dung
+  riêng tư. Chưa chạy file này trên Supabase của người dùng.
+- Server production localhost 3101 đã khởi động lại theo build cuối, tránh
+  giữ server cũ qua nhiều lần build. Phiên browser trống vào `/home`, `/board`,
+  `/island` đều chuyển sang sign-in; chưa dùng phiên đăng nhập thật của người dùng.
+
+Secret media và VAPID/dispatcher vẫn chưa có ở môi trường local được kiểm tra.
+Các release gates hosted auth/schema/media và PWA vật lý bên dưới vẫn còn hiệu lực.
+
+## Những khoảng trống đã xử lý (baseline completion)
 
 | Hạng mục | Bản tích hợp hiện tại |
 | --- | --- |
@@ -25,7 +66,7 @@ Letters “mở cùng nhau” vẫn cần cả hai online trong cùng phiên; me
 nội dung thư niêm phong. Board dùng năm loại persistence đã chốt; không thêm
 engine địa điểm/đếm ngược/nhiệm vụ mới hoặc các tính năng V2.
 
-## Bằng chứng kiểm thử bản tích hợp
+## Bằng chứng kiểm thử baseline completion
 
 - `pnpm lint`: pass, không warning.
 - `pnpm typecheck`: pass.

@@ -33,6 +33,9 @@ function WorkspaceEditor({ workspace,onClose }: { workspace: WhiteboardWorkspace
   const [invalid,setInvalid]=useState(false);
   const [busy,setBusy]=useState(false);
   const [failure,setFailure]=useState("");
+  const [ink,setInk]=useState("#243e30");
+  const [width,setWidth]=useState(2);
+  const [activeTool,setActiveTool]=useState("selection");
   const previewRef=useRef(false);
   const conflict=state.operations.find(o=>o.state==="conflict"&&!o.resolutionOperationId);
   const remote=conflict?.conflict ? whiteboardSnapshot(conflict.conflict.remote) : null;
@@ -53,8 +56,17 @@ function WorkspaceEditor({ workspace,onClose }: { workspace: WhiteboardWorkspace
   }
   function tool(type:"freedraw"|"eraser"|"text"|"selection"|"rectangle"|"hand",highlighter=false) {
     if (!api) return;
-    api.updateScene({appState:{currentItemOpacity:highlighter ? 35 : 100,currentItemStrokeWidth:highlighter ? 12 : 2,currentItemStrokeColor:highlighter ? "#d9b65f" : "#243e30",currentItemFontFamily:2},captureUpdate:CaptureUpdateAction.NEVER});
+    setActiveTool(highlighter ? "highlighter" : type);
+    api.updateScene({appState:{currentItemOpacity:highlighter ? 35 : 100,currentItemStrokeWidth:highlighter ? Math.max(12,Math.min(32,width*4)) : width,currentItemStrokeColor:highlighter ? "#d9b65f" : ink,currentItemFontFamily:2},captureUpdate:CaptureUpdateAction.NEVER});
     api.setActiveTool({type});
+  }
+  function changeInk(color: string) {
+    setInk(color);
+    api?.updateScene({appState:{currentItemStrokeColor:color},captureUpdate:CaptureUpdateAction.NEVER});
+  }
+  function changeWidth(value: number) {
+    setWidth(value);
+    api?.updateScene({appState:{currentItemStrokeWidth:activeTool === "highlighter" ? Math.max(12,Math.min(32,value*4)) : value},captureUpdate:CaptureUpdateAction.NEVER});
   }
   function sticky() {
     if (!api) return;
@@ -62,19 +74,21 @@ function WorkspaceEditor({ workspace,onClose }: { workspace: WhiteboardWorkspace
     const elements=convertToExcalidrawElements([{type:"rectangle",x:-a.scrollX+60/a.zoom.value,y:-a.scrollY+100/a.zoom.value,width:180,height:120,backgroundColor:"#fef3c7",fillStyle:"solid",strokeColor:"#8c7755",label:{text:"Giấy nhớ",fontFamily:2,fontSize:20}}]);
     api.updateScene({elements:[...api.getSceneElementsIncludingDeleted(),...elements],captureUpdate:CaptureUpdateAction.IMMEDIATELY});
     api.setActiveTool({type:"selection"});
+    setActiveTool("selection");
   }
   return <section className="whiteboard-panel" aria-label="Bảng vẽ chung">
+    <header className="whiteboard-heading"><div><p className="eyebrow">GÓC VẼ CỦA HAI ĐỨA</p><h1>Bảng vẽ chung</h1><p>Một nét của bạn, một nét của người ấy. Không cần vẽ cùng lúc.</p></div><span className="whiteboard-paper-tag" aria-hidden="true">✎ trang chung</span></header>
     <div className="whiteboard-toolbar" role="toolbar" aria-label="Dụng cụ vẽ">
       <button onClick={()=>void run(async()=>{await workspace.flush();onClose();})}>Trở về phòng</button>
       {!preview && <>
-        <button onClick={()=>tool("freedraw")} disabled={!state.ready}>Bút</button>
-        <button onClick={()=>tool("freedraw",true)} disabled={!state.ready}>Tô sáng</button>
-        <button onClick={()=>tool("eraser")} disabled={!state.ready}>Tẩy</button>
-        <button onClick={()=>tool("text")} disabled={!state.ready}>Chữ</button>
+        <button aria-pressed={activeTool==="freedraw"} onClick={()=>tool("freedraw")} disabled={!state.ready}>Bút</button>
+        <button aria-pressed={activeTool==="highlighter"} onClick={()=>tool("freedraw",true)} disabled={!state.ready}>Tô sáng</button>
+        <button aria-pressed={activeTool==="eraser"} onClick={()=>tool("eraser")} disabled={!state.ready}>Tẩy</button>
+        <button aria-pressed={activeTool==="text"} onClick={()=>tool("text")} disabled={!state.ready}>Chữ</button>
         <button onClick={sticky} disabled={!state.ready}>Giấy nhớ</button>
-        <button onClick={()=>tool("rectangle")} disabled={!state.ready}>Hình</button>
-        <button onClick={()=>tool("selection")} disabled={!state.ready}>Di chuyển / xoay</button>
-        <button onClick={()=>tool("hand")} disabled={!state.ready}>Kéo trang</button>
+        <button aria-pressed={activeTool==="rectangle"} onClick={()=>tool("rectangle")} disabled={!state.ready}>Hình</button>
+        <button aria-pressed={activeTool==="selection"} onClick={()=>tool("selection")} disabled={!state.ready}>Di chuyển / xoay</button>
+        <button aria-pressed={activeTool==="hand"} onClick={()=>tool("hand")} disabled={!state.ready}>Kéo trang</button>
       </>}
       <button disabled={!state.ready} onClick={()=>api?.scrollToContent(api.getSceneElements(),{fitToContent:true,maxZoom:1,animate:false})}>Vừa khung</button>
       <button disabled={!state.ready||busy||invalid||preview||state.operations.length>0} onClick={()=>void run(()=>workspace.save())}>Lưu vào Nhà</button>
@@ -85,6 +99,10 @@ function WorkspaceEditor({ workspace,onClose }: { workspace: WhiteboardWorkspace
         const a=document.createElement("a");a.href=url;a.download="nha-minh-whiteboard-drafts.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
       })}>Xuất bản nháp</button>
     </div>
+    {!preview&&<div className="whiteboard-ink-tray" aria-label="Màu và nét bút">
+      <div className="whiteboard-palette">{[["#243e30","Rừng"],["#ae5546","Gạch"],["#387b98","Biển"],["#73854c","Lá"],["#bb8b35","Nắng"],["#8b6491","Hoa"]].map(([color,name])=><button key={color} type="button" aria-label={`Màu ${name}`} aria-pressed={ink===color} disabled={!state.ready} onClick={()=>changeInk(color!)}><span aria-hidden="true" style={{background:color}}/><span>{name}</span></button>)}</div>
+      <label className="whiteboard-stroke">Nét bút <input aria-label="Độ dày nét bút" type="range" min={1} max={8} step={1} value={width} disabled={!state.ready} onChange={event=>changeWidth(Number(event.target.value))}/><span aria-hidden="true">{width}</span></label>
+    </div>}
     <p role="status" className="whiteboard-status">{state.localSaved ? "Bản nháp đã giữ trên máy." : "Đang giữ bản nháp…"} {state.operations.length ? "Có lần lưu chờ xác nhận." : state.dirty ? "Chọn Lưu vào Nhà để chia sẻ." : "Đã tải bản của Nhà."}</p>
     {(state.error||failure) && <p role="alert" className="whiteboard-status">{failure||state.error}</p>}
     {conflict && remote && <div className="whiteboard-conflict">
@@ -98,7 +116,8 @@ function WorkspaceEditor({ workspace,onClose }: { workspace: WhiteboardWorkspace
         zenModeEnabled viewModeEnabled={preview} handleKeyboardGlobally aiEnabled={false} validateEmbeddable={false}
         UIOptions={{tools:{image:false},canvasActions:{loadScene:false,export:false,saveAsImage:false,saveToActiveFile:false,clearCanvas:false,toggleTheme:false}}}
         onPaste={()=>false} onLinkOpen={(_,event)=>event.preventDefault()}
-        onChange={(elements)=>{
+        onChange={(elements,appState)=>{
+          setActiveTool(appState.activeTool.type==="freedraw"&&appState.currentItemOpacity===35 ? "highlighter" : appState.activeTool.type);
           if (previewRef.current) return;
           const next=captureWhiteboardElements(elements);
           if (!next) { setInvalid(true); workspace.edit({}); return; }

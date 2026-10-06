@@ -1,0 +1,4 @@
+.island-places{position:absolute;inset:0;pointer-events:none}
+.island-place-link{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:8px 12px;border-radius:12px;background:var(--paper);color:var(--forest);font-size:14px;font-weight:700;box-shadow:0 3px 9px #183a3026;white-space:nowrap}
+.island-place-link:focus-visible{outline:2px solid var(--forest);outline-offset:4px}
+@media(max-width:600px){.island-map{margin-bottom:52px}.island-places{inset:auto 0 -44px;display:flex;justify-content:center;gap:6px}.island-place-link{position:static;transform:none;flex:1;min-width:0;font-size:12px;padding:6px}.island-world #island-journal{margin-left:12px;margin-right:12px;scroll-margin-top:16px}}

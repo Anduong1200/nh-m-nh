@@ -11,6 +11,22 @@ export type IslandRefresh = { view?: IslandView; cached: boolean; error?: string
 const cacheId = (houseId: string) => `island:${houseId}`;
 const json = (value: unknown): JsonValue => JSON.parse(JSON.stringify(value)) as JsonValue;
 
+/** A failed optional artifact list must not hide an authorized world projection. */
+export function islandReadResult(context: GameContext, projection: Awaited<ReturnType<IslandTransport["read"]>>, games: Awaited<ReturnType<IslandTransport["list"]>>): { view: IslandView | null; error?: string; blocked?: boolean } {
+  const changed = [projection.context, games.context].some(reply => reply && (reply.accountId !== context.accountId || reply.houseId !== context.houseId));
+  if (projection.blocked || games.blocked || changed) return { view: null, blocked: true, error: "Cần xác nhận lại quyền vào Nhà." };
+  if (projection.context?.accountId !== context.accountId || projection.context.houseId !== context.houseId) return { view: null, error: "Chưa xác nhận được Đảo. Bạn có thể thử lại." };
+  if (games.error && games.sessions === undefined) {
+    const view = parseIslandView({ state: projection.state, artifacts: [] }, context);
+    return { view, error: view ? "Chưa tải được tác phẩm trò chơi. Bản đồ và sổ của Đảo vẫn mở." : "Chưa tải được bản đồ Đảo. Bạn có thể thử lại." };
+  }
+  if (games.context?.accountId !== context.accountId || games.context.houseId !== context.houseId) return { view: null, error: "Chưa xác nhận được lịch sử Đảo. Bạn có thể thử lại." };
+  const sessions = games.sessions?.map(parseGameSession);
+  const valid = sessions && sessions.length <= 20 && sessions.every(session => session !== null && session.houseId === context.houseId && session.players.some(player => player.userId === context.accountId));
+  const view = valid ? parseIslandView({ state: projection.state, artifacts: sessions.filter(session => session?.status === "completed") }, context) : null;
+  return { view, ...(!view ? { error: "Chưa tải được lịch sử Đảo. Bạn có thể thử lại." } : {}) };
+}
+
 /** A read projection only. Neither artifacts nor cached counters authorize an event. */
 export function parseIslandView(value: unknown, context: GameContext): IslandView | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
@@ -61,21 +77,18 @@ export class IslandClient {
       const view = await this.cached();
       return { ...(view ? { view } : {}), cached: true, ...(!view ? { error: "Chưa có bản Đảo được lưu trên thiết bị này." } : {}) };
     }
-    const [projection, games] = await Promise.all([this.transport.read(this.context), this.transport.list(this.context)]);
+    const [projection, games] = await Promise.all([
+      this.transport.read(this.context).catch(() => ({ error: "Chưa tải được bản đồ Đảo." })),
+      this.transport.list(this.context).catch(() => ({ error: "Chưa tải được tác phẩm trò chơi." })),
+    ]);
     await this.check();
-    const changedContext = [projection.context, games.context].some(context => context && (context.accountId !== this.context.accountId || context.houseId !== this.context.houseId));
-    if (projection.blocked || games.blocked || changedContext) { this.stop(); return { cached: false, blocked: true, error: "Cần xác nhận lại quyền vào Nhà." }; }
-    if (projection.context?.accountId !== this.context.accountId || projection.context.houseId !== this.context.houseId || games.context?.accountId !== this.context.accountId || games.context.houseId !== this.context.houseId) {
-      const view = await this.cached();
-      return { ...(view ? { view } : {}), cached: !!view, error: "Chưa xác nhận được Đảo. Bạn có thể thử lại." };
-    }
-    const sessions = games.sessions?.map(parseGameSession);
-    const validSessions = sessions && sessions.length <= 20 && sessions.every(session => session !== null && session.houseId === this.context.houseId && session.players.some(player => player.userId === this.context.accountId));
-    const view = validSessions ? parseIslandView({ state: projection.state, artifacts: sessions.filter(session => session?.status === "completed") }, this.context) : null;
+    const result = islandReadResult(this.context, projection, games);
+    if (result.blocked) { this.stop(); return { cached: false, blocked: true, error: result.error ?? "Cần xác nhận lại quyền vào Nhà." }; }
+    const view = result.view;
     if (!view) {
       const previous = await this.cached();
-      return { ...(previous ? { view: previous } : {}), cached: !!previous, error: "Chưa tải được lịch sử Đảo. Bạn có thể thử lại." };
+      return { ...(previous ? { view: previous } : {}), cached: !!previous, error: result.error ?? "Chưa tải được lịch sử Đảo." };
     }
-    return { view: await this.remember(view), cached: false };
+    return { view: await this.remember(view), cached: false, ...(result.error ? { error: result.error } : {}) };
   }
 }

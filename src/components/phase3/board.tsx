@@ -1,6 +1,6 @@
 "use client";
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { validBoardPayload, type BoardItem } from "@/modules/board/model";
+import { validBoardPayload, type BoardItem, type BoardType } from "@/modules/board/model";
 import { uploadPhotoAction, uploadVoiceAction } from "@/modules/media/actions";
 import { PrivatePhoto } from "@/components/private-photo";
 import { VoiceRecorder } from "@/components/media/voice-recorder";
@@ -8,9 +8,10 @@ import { doodleBounds, emptyGameDoodle, type GameDoodle } from "@/components/pha
 import { useBoard } from "./use-board";
 import { cachedBoardItem } from "./board-local";
 import "./board.css";
+import { boardOrigin } from "./board-viewport";
 const Drawing = lazy(async () => { window.EXCALIDRAW_ASSET_PATH="/vendor/excalidraw-0.18.1/"; return import("@/components/phase4/games/doodle-editor"); });
 type BoardProps = { houseId: string; accountId: string; initialItems: BoardItem[]; onClose: () => void; syncEnabled?: boolean };
-type DragState = { id: string; type: "move" | "rotate"; startX: number; startY: number; x: number; y: number; rotation: number; centerX: number; centerY: number; zIndex: number };
+type DragState = { id: string; type: "move" | "rotate"; startX: number; startY: number; x: number; y: number; rotation: number; centerX: number; centerY: number; zIndex: number; origin: { x: number; y: number } };
 const STICKERS = { leaf: "🍃", star: "✨", tea: "🍵", hug: "🫂" };
 const labels = { note:"ghi chú",link:"liên kết",doodle:"bản vẽ",photo:"ảnh",voice:"âm thanh" };
 const clamp = (n: number) => Math.max(-10000,Math.min(10000,n));
@@ -29,7 +30,8 @@ function Content({item,houseId}: {item: BoardItem;houseId: string}) {
 }
 export function Board({ houseId,accountId,initialItems,onClose,syncEnabled=true }: BoardProps) {
   const board=useBoard(accountId,houseId,initialItems,syncEnabled);
-  const { items,trashed,operations,message,ready,blocked,onlineBusy,onlineRequests,change,add,create,save,trash,resolve,refresh,exportLocal,flush }=board;
+  const { items,trashed,operations,message,ready,blocked,onlineBusy,onlineRequests,change,create:createItem,save,trash,resolve,refresh,exportLocal,flush }=board;
+  const scrollRef=useRef<HTMLDivElement>(null);
   const [dragging,setDragging]=useState<DragState|null>(null),[showStickers,setShowStickers]=useState(false);
   const [panel,setPanel]=useState<"link"|"photo"|"voice"|"trash"|null>(null),[drawing,setDrawing]=useState<string|null>(null);
   const [url,setUrl]=useState(""),[title,setTitle]=useState(""),[caption,setCaption]=useState(""),[file,setFile]=useState<File|null>(null);
@@ -51,12 +53,17 @@ export function Board({ houseId,accountId,initialItems,onClose,syncEnabled=true 
     document.addEventListener("keydown",key);return()=>{document.removeEventListener("keydown",key);if(previous?.isConnected)previous.focus();};
   },[panel,drawing,blocked]);
   const maxZ=Math.min(1000000,Math.max(0,...items.map(i=>i.zIndex))+1);
+  const origin=dragging?.origin??boardOrigin(items);
+  function create(type: BoardType, payload: Record<string,unknown>, mediaId: string | null = null) {
+    return createItem(type,payload,mediaId,{x:clamp((scrollRef.current?.scrollLeft??0)+48-origin.x),y:clamp((scrollRef.current?.scrollTop??0)+80-origin.y)});
+  }
+  const add=(text="")=>create("note",{text});
   const draftDrawing=items.find(i=>i.id===drawing&&i.type==="doodle");
   const busy=(item: BoardItem)=>board.savingItems.includes(item.id)||!!operations.find(o=>o.entityId===item.id)||onlineBusy===item.id||!ready;
   function pointerDown(e: React.PointerEvent,item: BoardItem,type:"move"|"rotate") {
     if(busy(item))return;e.stopPropagation();e.currentTarget.setPointerCapture(e.pointerId);
     const rect=e.currentTarget.closest("[data-board-item]")?.getBoundingClientRect();rotated.current=false;change({...item,zIndex:maxZ});
-    setDragging({id:item.id,type,startX:e.clientX,startY:e.clientY,x:item.x,y:item.y,rotation:item.rotation,centerX:rect?rect.left+rect.width/2:0,centerY:rect?rect.top+rect.height/2:0,zIndex:maxZ});
+    setDragging({id:item.id,type,startX:e.clientX,startY:e.clientY,x:item.x,y:item.y,rotation:item.rotation,centerX:rect?rect.left+rect.width/2:0,centerY:rect?rect.top+rect.height/2:0,zIndex:maxZ,origin});
   }
   function pointerMove(e: React.PointerEvent) {
     const item=items.find(i=>i.id===dragging?.id);if(!dragging||!item)return;
@@ -76,14 +83,14 @@ export function Board({ houseId,accountId,initialItems,onClose,syncEnabled=true 
   }
   return <section aria-label="Bảng Chung" className="board-room" onPointerMove={pointerMove} onPointerUp={()=>setDragging(null)} onPointerCancel={()=>setDragging(null)}>
     <div className="board-frame" aria-hidden="true"/>
-    <div className="board-status"><p role="status">{message}</p><button onClick={()=>void refresh().catch(()=>{})}>Thử đồng bộ</button><button onClick={()=>void exportLocal()}>Xuất bản nháp</button></div>
+    <header className="board-status"><div className="board-heading"><h1>Bảng Chung</h1><p>Mảnh giấy, nét vẽ và những điều muốn để lại.</p></div><p role="status">{message}</p><button onClick={()=>void refresh().catch(()=>{})}>Thử đồng bộ</button><button onClick={()=>void exportLocal()}>Xuất bản nháp</button></header>
     {blocked?<div className="board-locked"><p>Bảng đã đóng vì phiên đăng nhập hoặc Nhà đã đổi.</p><a href="/auth/sign-in">Đăng nhập lại</a></div>:<>
-      <div className="board-scroll"><div className="board-space" style={{minWidth:`${Math.max(300,...items.map(i=>Math.max(0,i.x)+260))}px`,minHeight:`${Math.max(540,...items.map(i=>Math.max(0,i.y)+470))}px`}}>
+      <div className="board-scroll" ref={scrollRef}><div className="board-space" style={{minWidth:`${Math.max(300,...items.map(i=>i.x+origin.x+320))}px`,minHeight:`${Math.max(540,...items.map(i=>i.y+origin.y+680))}px`}}>
         {items.length===0&&ready&&<p className="board-empty">Bảng còn trống. Để lại một ghi chú, bức vẽ hay điều nhỏ cho người ấy.</p>}
         {items.map(item=>{
           const pending=operations.find(o=>o.entityId===item.id),text=typeof item.payload.text==="string"?item.payload.text:"",sticker=item.type==="note"&&Object.values(STICKERS).includes(text),name=sticker?"sticker":labels[item.type];
           const remote=cachedBoardItem(pending?.conflict?.remote);
-          return <article key={item.id} data-board-item={item.id} aria-label={sticker?"Sticker đã ghim":`${labels[item.type]} trên bảng`} className={`board-card ${sticker?"board-sticker":""} ${item.type==="note"?"board-note":""}`} style={{transform:`translate(${item.x}px, ${item.y}px) rotate(${item.rotation}deg)`,zIndex:item.zIndex}}>
+          return <article key={item.id} data-board-item={item.id} aria-label={sticker?"Sticker đã ghim":`${labels[item.type]} trên bảng`} className={`board-card ${sticker?"board-sticker":""} ${item.type==="note"?"board-note":""}`} style={{transform:`translate(${item.x+origin.x}px, ${item.y+origin.y}px) rotate(${item.rotation}deg)`,zIndex:item.zIndex}}>
             <button aria-label={`Di chuyển ${name}`} disabled={busy(item)} className="board-handle" onPointerDown={e=>pointerDown(e,item,"move")} onKeyDown={e=>{const direction:number[]|undefined={ArrowLeft:[-10,0],ArrowRight:[10,0],ArrowUp:[0,-10],ArrowDown:[0,10]}[e.key];if(direction){e.preventDefault();change({...item,x:clamp(item.x+(direction[0]??0)),y:clamp(item.y+(direction[1]??0))});}}}>⠿ <span>{sticker?"Sticker":labels[item.type]}</span></button>
             {item.type==="note"?(sticker?<p className="board-sticker-image" aria-label={`Sticker ${text}`}>{text}</p>:<textarea aria-label="Nội dung ghi chú" value={text} disabled={busy(item)} maxLength={10000} placeholder="Viết gì đó..." className="board-note-text" onChange={e=>change({...item,payload:{text:e.target.value}})}/>):<Content item={item} houseId={houseId}/>}
             {item.type==="link"&&<div className="board-fields"><input aria-label="Địa chỉ liên kết" value={String(item.payload.url??"")} disabled={busy(item)} maxLength={2048} onChange={e=>change({...item,payload:{...item.payload,url:e.target.value}})}/><input aria-label="Tên liên kết" value={String(item.payload.title??"")} disabled={busy(item)} maxLength={200} onChange={e=>change({...item,payload:{...item.payload,title:e.target.value}})}/></div>}

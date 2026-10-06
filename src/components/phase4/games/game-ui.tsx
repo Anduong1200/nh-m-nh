@@ -13,6 +13,7 @@ import type { GameProposal, GameTransport } from "@/modules/games/sync";
 import { GamesWorkspace, isStaleGameDraft, type GameList } from "./workspace";
 import { doodleBounds, emptyGameDoodle, type GameDoodle } from "./doodle-codec";
 import "./games.css";
+import { GameCover } from "./game-cover";
 
 const Drawing=lazy(async()=>{window.EXCALIDRAW_ASSET_PATH="/vendor/excalidraw-0.18.1/";return import("./doodle-editor");});
 const games: Record<GameType,{title:string;description:string;icon:string}>={
@@ -53,12 +54,19 @@ function WorkspaceScreen({workspace,initialSessionId,initialError,upload,Photo}:
   const [history,setHistory]=useState(false);
   const [error,setError]=useState("");
   const [navigating,setNavigating]=useState(false);
+  const panelRef=useRef<HTMLElement|null>(null);
   const session=state.sessions.find(s=>s.id===selected);
+  const selectedSessionId=session?.id;
   const operations=state.operations.filter(o=>o.entityId===gameLocalId(selected??creating?.id??""));
   const conflict=operations.find(o=>o.state==="conflict"&&!o.resolutionOperationId);
   const remote=parseGameSession(conflict?.conflict?.remote);
   const draft=state.drafts.find(d=>d.id===gameLocalId(selected??creating?.id??""));
   const recoveries=state.drafts.filter(d=>d.id.startsWith("game-recovery:")&&record(d.payload)&&d.payload.mode==="recovery");
+  useEffect(()=>{
+    if (!creating && !selectedSessionId) return;
+    panelRef.current?.focus({preventScroll:true});
+    panelRef.current?.scrollIntoView({block:"start",behavior:"auto"});
+  },[creating,selectedSessionId]);
   async function run(task:()=>Promise<unknown>){setError("");try{await task();}catch{setError("Chưa xác nhận được thao tác. Bản nháp và lượt chờ vẫn được giữ.");}}
   async function navigate(change:()=>void){
     if(navigating)return;setNavigating(true);setError("");
@@ -75,7 +83,7 @@ function WorkspaceScreen({workspace,initialSessionId,initialError,upload,Photo}:
     <p role="status">{state.online?state.busy?"Đang xác nhận với Nhà…":state.notice:"Đang ngoại tuyến. Bạn vẫn có thể giữ bản nháp và xếp lượt chờ gửi."} {state.operations.length>0&&`${state.operations.length} lượt đang chờ xác nhận.`}</p>
     {(state.error||error||initialError&&!state.sessions.length)&&<p role="alert">{error||state.error||initialError}</p>}
     {state.blocked ? <p>Hộp trò chơi tạm đóng vì phiên đăng nhập hoặc Nhà đã đổi. <a href="/auth/sign-in">Đăng nhập lại</a>. Bản nháp được giữ riêng trên máy.</p> : <>
-      {!history&&<section aria-label="Bắt đầu màn mới" className="games-lobby">{GAME_TYPES.map(type=><button key={type} disabled={navigating} onClick={()=>void navigate(()=>{setSelected(null);setCreating({id:crypto.randomUUID(),gameType:type});})}><span aria-hidden="true">{games[type].icon}</span><strong>{games[type].title}</strong><span>{games[type].description}</span></button>)}</section>}
+      {!history&&<section aria-label="Bắt đầu màn mới" className="games-lobby">{GAME_TYPES.map((type,index)=><button key={type} disabled={navigating} onClick={()=>void navigate(()=>{setSelected(null);setCreating({id:crypto.randomUUID(),gameType:type});})}><GameCover type={type}/><span className="game-box-number" aria-hidden="true">0{index+1} · CHƠI THEO NHỊP CỦA HAI ĐỨA</span><strong>{games[type].title}</strong><span>{games[type].description}</span><span className="game-box-open">Mở hộp <span aria-hidden="true">↗</span></span></button>)}</section>}
       <section aria-label={history?"Kỷ vật đã hoàn thành":"Các màn đang chơi"} className="games-session-list">
         <h2>{history?"Những màn đã thành kỷ vật":"Màn đang chơi"}</h2>
         {sessions.length===0&&<p>{history?"Chưa có kỷ vật trò chơi. Những màn hoàn thành sẽ được giữ ở đây.":"Chưa có màn đang chơi. Chọn một trò ở trên để bắt đầu."}</p>}
@@ -83,8 +91,8 @@ function WorkspaceScreen({workspace,initialSessionId,initialError,upload,Photo}:
       </section>
       {!history&&state.drafts.filter(d=>record(d.payload)&&d.payload.mode==="create"&&!state.sessions.some(s=>d.id===gameLocalId(s.id))&&d.id.startsWith("game:")).map(d=>{const payload=d.payload as Record<string,unknown>;const type=payload.gameType as GameType;return GAME_TYPES.includes(type)?<button key={d.id} disabled={navigating} onClick={()=>void navigate(()=>{setSelected(null);setCreating({id:d.id.slice(5),gameType:type});})}>Mở bản nháp {games[type].title}</button>:null;})}
       {recoveries.length>0&&<section className="games-paper" aria-label="Bản nháp lượt cũ"><h2>Bản nháp lượt cũ vẫn ở đây</h2><p>Nhà đã sang lượt khác. Những đóng góp chưa gửi được cất riêng trên máy, không tự thêm vào lượt mới. Dùng “Xuất bản nháp” để giữ một bản sao.</p>{recoveries.map(d=>{const p=d.payload as Record<string,unknown>;return <details key={d.id}><summary>Bản nháp {typeof p.sourceVersion==="number"?`ở lượt ${p.sourceVersion}`:"chưa xác định lượt"} · {d.updatedAt}</summary><RecoveryPreview content={p.content} houseId={d.houseId} Photo={Photo}/></details>;})}</section>}
-      {creating&&<section className="games-paper" aria-label="Tạo màn trò chơi"><CreateForm key={creating.id} value={creating} initial={draft?.payload} workspace={workspace} pending={operations.length>0||navigating} onCreated={id=>{setCreating(null);setSelected(id);}}/></section>}
-      {session&&<section className="games-paper" aria-label="Màn trò chơi đang chọn"><h2>{games[session.gameType].title}</h2><p>{session.gameType==="draw-guess"?session.answer!==null?`Từ khóa: ${session.answer}`:"Từ khóa được giữ kín đến khi màn hoàn thành.":`Chủ đề: ${session.prompt}`}</p><GameArtifact session={session} Photo={Photo}/>
+      {creating&&<section ref={panelRef} tabIndex={-1} className="games-paper" aria-label="Tạo màn trò chơi"><CreateForm key={creating.id} value={creating} initial={draft?.payload} workspace={workspace} pending={operations.length>0||navigating} onCreated={id=>{setCreating(null);setSelected(id);}}/></section>}
+      {session&&<section ref={panelRef} tabIndex={-1} className="games-paper" aria-label="Màn trò chơi đang chọn"><h2>{games[session.gameType].title}</h2><p>{session.gameType==="draw-guess"?session.answer!==null?`Từ khóa: ${session.answer}`:"Từ khóa được giữ kín đến khi màn hoàn thành.":`Chủ đề: ${session.prompt}`}</p><GameArtifact session={session} Photo={Photo}/>
         {draft&&isStaleGameDraft(draft.payload,session,workspace.context.accountId)&&<p role="status">Bản nháp trước thuộc lượt khác hoặc chưa xác định được lượt. Nội dung vẫn giữ trên máy; xem “Bản nháp lượt cũ” hoặc xuất bản nháp trước khi tiếp tục.</p>}
         {session.status==="active"&&<><p role="status">Lượt {session.turn?.number}/{session.turnLimit} · {session.turn?.userId===workspace.context.accountId?"Đến lượt bạn":"Người ấy sẽ tiếp tục khi rảnh."}</p>{session.turn?.userId===workspace.context.accountId&&<MoveForm key={`${session.id}:${session.version}`} session={session} initial={draft?.payload} workspace={workspace} upload={upload} Photo={Photo} pending={operations.length>0||navigating}/>}</>}
         {session.status==="completed"&&<p>Kỷ vật đã được giữ trong Nhà. Cả hai có thể mở lại bất cứ lúc nào.</p>}
