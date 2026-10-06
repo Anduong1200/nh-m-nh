@@ -5,6 +5,20 @@
 - Vercel
 - Supabase
 
+## Current production address — 2026-10-06
+
+- [Nhà Mình](https://nha-minh-ten.vercel.app)
+- Vercel project: `anduong1200/nha-minh`, Hobby, Node 24.x, Next.js.
+- Git repository: `Anduong1200/nh-m-nh`, production branch `main`.
+- Production has the two public Supabase variables; `NEXT_TELEMETRY_DISABLED=1`
+  disables framework build telemetry on subsequent builds.
+- Supabase Site URL: `https://nha-minh-ten.vercel.app`.
+- Supabase Redirect URL: `https://nha-minh-ten.vercel.app/auth/callback?next=**`.
+
+The HTTPS shell is deployed and checked. Saving the Supabase URLs, the real
+two-account flow, server media Secret, background notification configuration and
+installed phone acceptance remain separate gates; see `COMPLETION_STATUS.md`.
+
 ## First HTTPS deployment
 
 The project is a Next.js server application. Use the repository root and the

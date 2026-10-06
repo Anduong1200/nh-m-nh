@@ -73,10 +73,12 @@ Thứ tự nghiệm thu tiếp:
    disable/logout/account switch.
 4. Chạy closed-app offline/reconnect, touch/voice và vòng đời installed PWA trên
    iPhone/Android thật; stress race với các kết nối PostgreSQL độc lập.
-5. Người dùng đã đăng nhập Vercel; CLI đang được kết nối qua device authorization.
-   Chưa có deployment HTTPS đã nghiệm thu. Đặt environment/callback theo
-   `DEPLOYMENT.md`, sau đó thử PWA trên hai điện thoại. CI của baseline `cdcf189`
-   đã success; git push trước đó không tạo deployment.
+5. Đã deploy HTTPS tại `https://nha-minh-ten.vercel.app` ngày 2026-10-06, project
+   Vercel `anduong1200/nha-minh` trên Hobby/Node 24.x, GitHub đã kết nối. CI của
+   code commit `19b59cf` success:
+   [run 37472314236](https://github.com/Anduong1200/nh-m-nh/actions/runs/37472314236).
+   Đã gửi người dùng Site URL/callback chính xác; chưa có xác nhận đăng nhập thật
+   trên origin mới hoặc installed PWA trên điện thoại.
 
 ## Sửa môi trường Windows và chuẩn bị phát hành — 2026-10-06
 
@@ -102,6 +104,17 @@ Thứ tự nghiệm thu tiếp:
   Đây là kiểm tra shell công khai, không phải hosted auth hay installed PWA thật.
 - `.vercelignore` loại credentials, cache và browser artifacts khỏi CLI upload;
   fonts/offline manifest được sinh lại trên deployment host.
+- Vercel production build đã READY và alias ổn định. Dry-run gồm 388 source
+  entries/2.3 MiB, không chứa `.env.local`, `.vercel` hay browser artifacts;
+  hai thư mục test chỉ có metadata rỗng. Supabase public configuration được đặt
+  riêng trong Production, không upload file environment. CLI telemetry tắt;
+  đã đặt `NEXT_TELEMETRY_DISABLED=1` cho các build Production tiếp theo.
+- HTTPS smoke: public shell/manifest/worker/offline assets trả 200; worker scope
+  `/`, worker/build manifest no-store. Browser Chromium và iPhone WebKit đã được
+  kiểm tra và xem ảnh: không tràn ngang/page error, worker active, Google sign-in
+  được cấu hình; cả sáu private rooms đều chuyển khách tới sign-in. Chromium tải
+  lại recovery khi offline trên chính HTTPS origin. WebKit offline được kiểm tra
+  bằng stopped-origin helper; installed iPhone thật vẫn chưa được nghiệm thu.
 
 Xem [hosted setup](V1_HOSTED_SETUP.md),
 [private media](PRIVATE_MEDIA.md),
